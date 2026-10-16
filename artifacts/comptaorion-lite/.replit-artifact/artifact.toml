@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "ComptaOrion Lite"
+description = "Application indépendante de gestion des ventes, du stock, des dépenses, des clients et des paiements avec file hors connexion, alimentée par une nouvelle base dédiée."
+version = "1.0.0"
+id = "artifacts/comptaorion-lite"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20146
+
+[services.development]
+run = "pnpm --filter @workspace/comptaorion-lite run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/comptaorion-lite", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/comptaorion-lite/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20146"
+BASE_PATH = "/"
