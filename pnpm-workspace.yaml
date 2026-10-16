@@ -76,6 +76,9 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # Express 4's old decoder disables its own streams in browser-targeted bundles.
+  # Use its API-compatible current decoder for the Workers Node compatibility runtime.
+  "iconv-lite@0.4.24": "0.7.3"
   # replit uses linux-x64 only, we can exclude all other platforms
   "esbuild>@esbuild/darwin-arm64": "-"
   "esbuild>@esbuild/darwin-x64": "-"

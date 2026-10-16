@@ -1,0 +1,5 @@
+# Copy to .dev.vars for local wrangler dev only; never commit actual values.
+# Use an independent Lite PostgreSQL database, not the old ERP database.
+DATABASE_URL=
+JWT_SECRET=
+JWT_REFRESH_SECRET=

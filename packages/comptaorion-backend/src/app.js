@@ -23,7 +23,10 @@ app.use('/api/produits', produitsRoutes);
 app.use('/api/factures', facturesRoutes);
 app.use('/api/depenses', depensesRoutes);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Route non disponible dans Lite' }));
-const dist = fileURLToPath(new URL('../../frontend/dist/', import.meta.url));
-app.use(express.static(dist));
-app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+// Cloudflare serves the frontend through its ASSETS binding, not a filesystem.
+if (process.env.CLOUDFLARE_WORKER !== 'true') {
+  const dist = fileURLToPath(new URL('../../../artifacts/comptaorion-lite/dist/public/', import.meta.url));
+  app.use(express.static(dist));
+  app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+}
 export default app;

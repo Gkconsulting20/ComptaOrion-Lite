@@ -1,0 +1,22 @@
+name = "comptaorion-lite"
+main = "packages/comptaorion-backend/src/cloudflare.js"
+compatibility_date = "2026-10-16"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[build]
+command = "pnpm run build:cloudflare"
+
+[vars]
+NODE_ENV = "production"
+CLOUDFLARE_WORKER = "true"
+
+[assets]
+directory = "./artifacts/comptaorion-lite/dist/public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api", "/api/*"]
+
+# DATABASE_URL, JWT_SECRET and JWT_REFRESH_SECRET belong in Cloudflare
+# encrypted Secrets, never here. PostgreSQL is retained; no D1 migration.
+# GROQ_API_KEY is not required until the Groq features are implemented.

@@ -9,7 +9,7 @@ if (!JWT_SECRET || !JWT_REFRESH_SECRET) {
   console.error('❌ ERREUR FATALE: JWT_SECRET et JWT_REFRESH_SECRET doivent être définis.');
   console.error('❌ Définir ces variables d\'environnement avant de démarrer le serveur.');
   console.error('❌ Exemple: JWT_SECRET=votre_secret_super_securise');
-  process.exit(1); // Arrêter le serveur si les secrets ne sont pas configurés
+  throw new Error('JWT_SECRET et JWT_REFRESH_SECRET doivent être configurés pour Lite.');
 }
 
 const JWT_EXPIRES_IN = '24h';
