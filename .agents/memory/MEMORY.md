@@ -1,0 +1,1 @@
+- [Indépendance de Lite](lite-isolation.md) — base et secrets propres à ComptaOrion Lite; ne jamais réutiliser ceux de l’ancien ERP; IA désactivée.
