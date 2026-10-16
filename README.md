@@ -71,14 +71,22 @@ Dans Cloudflare, ouvrir **Workers & Pages → Create → Import a repository**
 
 1. Connecter GitHub et sélectionner le dépôt privé.
 2. Choisir un projet **Worker**, avec la racine du dépôt comme répertoire.
-3. Utiliser la commande de déploiement `pnpm run deploy:cloudflare`.
-   La construction est définie dans `wrangler.toml`; si une commande de
-   construction supplémentaire est facultative, la laisser vide pour
-   éviter de construire deux fois.
+3. Dans les paramètres de construction Cloudflare, renseigner :
+   - commande de construction : `pnpm run build:cloudflare` ;
+   - commande de déploiement : `pnpm run deploy:cloudflare` ;
+   - répertoire racine : la racine du dépôt (pas un sous-dossier).
+   Workers Builds ne prend pas en charge la construction personnalisée de
+   `wrangler.toml` comme remplacement de son étape de construction explicite.
 4. Choisir la branche principale du dépôt.
 5. Ajouter les secrets ci-dessous dans les paramètres du Worker, puis
    redéployer. Sans eux, l'interface peut s'afficher mais l'API répondra 503
    avec `configuration_required`, sans exposer de valeur secrète.
+
+Si le Worker `comptaorion-lite` existe déjà, ouvrir **Settings → Builds → Connect**
+pour le relier au dépôt GitHub, plutôt que créer un deuxième projet. Son nom
+doit correspondre à `name` dans `wrangler.toml`. La connexion du dépôt active
+les constructions et publications automatiques sur les prochains push de la
+branche choisie ; ne pas envoyer de commit sans tenir compte de cet effet.
 
 ### Secrets à créer dans Cloudflare, pas dans GitHub
 

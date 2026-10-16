@@ -27,8 +27,8 @@ Le runtime Workers local de cet environnement peut échouer sur les appels HTTPS
 
 **How to apply:** distinguer les tests applicatifs avec un relais Node explicite des tests de réseau natif Cloudflare. Ne jamais présenter les premiers comme une validation du réseau du Worker publié.
 
-Le statut sain d’une connexion GitHub de contrôle de source ne garantit pas que `gh` soit authentifié dans le Shell de cet environnement.
+Le statut sain d’une connexion GitHub de contrôle de source ne garantit pas que les commandes Git disposent de l’authentification nécessaire.
 
-**Why:** le statut d’autorisation et les accès effectifs de l’outil GitHub ont divergé; les formulaires de connexion génériques n’acceptaient pas cette connexion de contrôle de source.
+**Why:** l’utilisateur a confirmé que le blocage venait d’une configuration temporaire du push, et qu’une configuration persistante utilisant `GH_TOKEN` pour les commandes Git habituelles a permis récupération, push réel et concordance avec le dépôt distant.
 
-**How to apply:** vérifier l’accès effectif avant de promettre une création de dépôt. Si l’accès reste indisponible, guider l’utilisateur dans le panneau Git plutôt que répéter les formulaires ou demander un token dans le chat.
+**How to apply:** vérifier l’accès effectif et la portée de la configuration Git avant de proposer une nouvelle connexion. Ne pas confondre un échec de `gh` avec celui de Git, ni répéter les formulaires d’autorisation. Ne jamais lire, afficher ou enregistrer la valeur du jeton dans le code ou les notes.
