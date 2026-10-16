@@ -1,1 +1,2 @@
-- [Indépendance de Lite](lite-isolation.md) — base et secrets propres à ComptaOrion Lite; ne jamais réutiliser ceux de l’ancien ERP; IA désactivée.
+- [Indépendance de Lite](lite-isolation.md) — base et secrets propres à ComptaOrion Lite; ne jamais réutiliser ceux de l’ancien ERP.
+- [IA et configuration de Lite](lite-ai-scope.md) — IA demandée pour les paiements et la saisie; guider la création des clés plutôt que demander des valeurs inconnues.
