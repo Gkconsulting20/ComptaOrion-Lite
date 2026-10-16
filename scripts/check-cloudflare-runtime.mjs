@@ -92,6 +92,7 @@ try {
     assert.equal(health.status, 200, JSON.stringify(result));
     assert.equal(result.application, 'ComptaOrion Lite');
     assert.equal((await fetch(`${origin}/api/produits`)).status, 401);
+    assert.equal((await fetch(`${origin}/api/ai/status`)).status, 401);
     assert.equal((await fetch(`${origin}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -106,6 +107,20 @@ try {
     })}`;
     const signature = createHmac('sha256', 'test-access-fixture-not-a-real-secret')
       .update(unsigned).digest('base64url');
+    const aiStatus = await fetch(`${origin}/api/ai/status`, {
+      headers: { Authorization: `Bearer ${unsigned}.${signature}` },
+    });
+    assert.equal(aiStatus.status, 200);
+    const aiConfig = (await aiStatus.json()).data;
+    assert.equal(aiConfig.configured, false);
+    assert.equal(aiConfig.model, 'qwen/qwen3.8-27b');
+    assert.equal(aiConfig.license, 'Apache-2.0');
+    const refusedPhoto = await fetch(`${origin}/api/ai/prepare-photo`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${unsigned}.${signature}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ consent: false, image: 'invalid' }),
+    });
+    assert.equal(refusedPhoto.status, 400);
     const dbProbe = await fetch(`${origin}/api/produits`, {
       headers: { Authorization: `Bearer ${unsigned}.${signature}` },
       signal: AbortSignal.timeout(30000),

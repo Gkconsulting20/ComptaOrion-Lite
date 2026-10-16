@@ -41,7 +41,7 @@ router.post('/categories', async (req, res) => {
 // ENREGISTREMENT DÉPENSES
 // ==========================================
 
-router.post('/create', async (req, res) => {
+export async function createExpense(req, res) {
   try {
     const { categorieId, montant, dateDepense, description, justificatifUrl, récurrente, fréquenceRécurrence, ipAddress } = req.body;
     const numericAmount = Number(montant);
@@ -91,7 +91,7 @@ router.post('/create', async (req, res) => {
       employeId: req.user.id,
       categorieId: categorie.id,
       montant: numericAmount,
-      dateDepense: parsedDate,
+      dateDepense: parsedDate.toISOString().slice(0, 10),
       description: String(description).trim(),
       justificatifUrl,
       récurrente: récurrente || false,
@@ -113,7 +113,7 @@ router.post('/create', async (req, res) => {
       entrepriseId: req.entrepriseId,
       userId: req.user.id,
       action: 'CREATE',
-      table: 'depenses',
+      tableName: 'depenses',
       recordId: depense[0].id,
       description: `Dépense créée: ${description} (${montant} FCFA)`,
       ipAddress
@@ -125,9 +125,13 @@ router.post('/create', async (req, res) => {
     });
     return res.status(result.status).json(result.body);
   } catch (error) {
-    res.status(error.status || 500).json({ error: error.message });
+    const status = error.status || 500;
+    res.status(status).json({ error: status >= 500
+      ? 'Impossible d’enregistrer la dépense. Le brouillon est conservé; réessayez.'
+      : error.message });
   }
-});
+}
+router.post('/create', createExpense);
 
 router.get('/list', async (req, res) => {
   try {

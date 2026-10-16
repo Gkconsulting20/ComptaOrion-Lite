@@ -21,6 +21,12 @@ La réussite du bundling Wrangler ne suffit pas à confirmer la compatibilité W
 
 **How to apply:** vérifier aussi le paquet dans le runtime local Workers, dont les routes API et le contexte PostgreSQL à travers Express, avant d’annoncer sa compatibilité.
 
+Le runtime Workers local de cet environnement peut échouer sur les appels HTTPS sortants, alors que les mêmes appels réussissent avec Node, y compris dans un Worker minimal sans Express.
+
+**Why:** cette différence a été constatée avec les appels Groq réels; modifier le code de production pour contourner le sandbox confondrait transport de test et comportement cible.
+
+**How to apply:** distinguer les tests applicatifs avec un relais Node explicite des tests de réseau natif Cloudflare. Ne jamais présenter les premiers comme une validation du réseau du Worker publié.
+
 Le statut sain d’une connexion GitHub de contrôle de source ne garantit pas que `gh` soit authentifié dans le Shell de cet environnement.
 
 **Why:** le statut d’autorisation et les accès effectifs de l’outil GitHub ont divergé; les formulaires de connexion génériques n’acceptaient pas cette connexion de contrôle de source.

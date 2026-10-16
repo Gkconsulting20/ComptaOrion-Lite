@@ -163,6 +163,9 @@ importers:
         specifier: ^0.4.3
         version: 0.4.3
     devDependencies:
+      miniflare:
+        specifier: 5.20261012.0-beta
+        version: 5.20261012.0-beta
       prettier:
         specifier: ^3.9.6
         version: 3.9.6

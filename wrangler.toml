@@ -19,4 +19,5 @@ run_worker_first = ["/api", "/api/*"]
 
 # DATABASE_URL, JWT_SECRET and JWT_REFRESH_SECRET belong in Cloudflare
 # encrypted Secrets, never here. PostgreSQL is retained; no D1 migration.
-# GROQ_API_KEY is not required until the Groq features are implemented.
+# GROQ_API_KEY is an encrypted Secret for photo extraction / explanations.
+# Without it, classic features and deterministic payment scoring still work.

@@ -2,7 +2,7 @@ import { pool } from '../db.js';
 
 let tableReady;
 
-async function ensureTable() {
+export async function ensureIdempotencyTable() {
   if (!tableReady) {
     tableReady = pool.query(`
       CREATE TABLE IF NOT EXISTS lite_idempotency (
@@ -19,7 +19,8 @@ async function ensureTable() {
         ON lite_idempotency (idempotency_key)
     `);
   }
-  await tableReady;
+  try { await tableReady; }
+  catch (error) { tableReady = undefined; throw error; }
 }
 
 export class IdempotencyConflictError extends Error {
@@ -59,6 +60,9 @@ export async function claimIdempotentOperation({
 }
 
 export async function idempotencyMiddleware(req, res, next) {
+  // AI preparation must never create an idempotency record before consent.
+  // Confirmation uses a server-owned image key inside the expense transaction.
+  if (req.path === '/ai' || req.path.startsWith('/ai/')) return next();
   const rawKey = req.get('X-Idempotency-Key');
   if (!rawKey) return next();
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(rawKey)) {
@@ -68,7 +72,7 @@ export async function idempotencyMiddleware(req, res, next) {
   if ((req.method === 'POST' && req.path === '/factures/lite-sale') ||
       (req.method === 'POST' && req.path === '/depenses/create')) {
     try {
-      await ensureTable();
+      await ensureIdempotencyTable();
       return next();
     } catch (error) {
       return next(error);
@@ -76,7 +80,7 @@ export async function idempotencyMiddleware(req, res, next) {
   }
 
   try {
-    await ensureTable();
+    await ensureIdempotencyTable();
     const claim = await pool.query(
       `INSERT INTO lite_idempotency (entreprise_id, idempotency_key)
        VALUES ($1, $2)
