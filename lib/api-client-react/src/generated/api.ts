@@ -22,13 +22,14 @@ import type {
 import type {
   AiFailureResponse,
   AnalyzeClientPayments200,
-  AnalyzeClientPaymentsBody,
   ConfirmPhotoExpense200,
-  ConfirmPhotoExpenseBody,
   GetAiStatus200,
   HealthStatus,
-  PreparePhoto200,
-  PreparePhotoBody
+  PaymentAnalysisInput,
+  PhotoConfirmationInput,
+  PhotoDuplicateConflict,
+  PhotoPreparationInput,
+  PreparePhoto200
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -122,6 +123,13 @@ export function useGetAiStatus<TData = Awaited<ReturnType<typeof getAiStatus>>, 
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+
+
+
+
+
+
 export const getPreparePhotoUrl = () => {
 
 
@@ -130,7 +138,7 @@ export const getPreparePhotoUrl = () => {
   return `/api/ai/prepare-photo`
 }
 
-export const preparePhoto = async (preparePhotoBody: PreparePhotoBody, options?: Parameters<typeof customFetch>[1]): Promise<PreparePhoto200> => {
+export const preparePhoto = async (photoPreparationInput: PhotoPreparationInput, options?: Parameters<typeof customFetch>[1]): Promise<PreparePhoto200> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -151,7 +159,7 @@ return customFetch<PreparePhoto200>(getPreparePhotoUrl(),
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(preparePhotoBody)
+    body: JSON.stringify(photoPreparationInput)
   }
 );}
 
@@ -189,9 +197,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type PreparePhotoMutationResult = NonNullable<Awaited<ReturnType<typeof preparePhoto>>>
-    export type PreparePhotoMutationBody = BodyType<PreparePhotoBody>
+    export type PreparePhotoMutationBody = BodyType<PhotoPreparationInput>
     export type PreparePhotoMutationError = ErrorType<AiFailureResponse>
-    export type PreparePhotoMutationVariables = {data: BodyType<PreparePhotoBody>}
+    export type PreparePhotoMutationVariables = {data: BodyType<PhotoPreparationInput>}
 
     export const usePreparePhoto = <TError = ErrorType<AiFailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof preparePhoto>>, TError,PreparePhotoMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -212,7 +220,7 @@ export const getConfirmPhotoExpenseUrl = () => {
   return `/api/ai/confirm`
 }
 
-export const confirmPhotoExpense = async (confirmPhotoExpenseBody: ConfirmPhotoExpenseBody, options?: Parameters<typeof customFetch>[1]): Promise<ConfirmPhotoExpense200> => {
+export const confirmPhotoExpense = async (photoConfirmationInput: PhotoConfirmationInput, options?: Parameters<typeof customFetch>[1]): Promise<ConfirmPhotoExpense200> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -233,7 +241,7 @@ return customFetch<ConfirmPhotoExpense200>(getConfirmPhotoExpenseUrl(),
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(confirmPhotoExpenseBody)
+    body: JSON.stringify(photoConfirmationInput)
   }
 );}
 
@@ -243,7 +251,7 @@ return customFetch<ConfirmPhotoExpense200>(getConfirmPhotoExpenseUrl(),
 
 export const getConfirmPhotoExpenseMutationKey = () => ['confirmPhotoExpense'] as const;
 
-export const getConfirmPhotoExpenseMutationOptions = <TError = ErrorType<AiFailureResponse>,
+export const getConfirmPhotoExpenseMutationOptions = <TError = ErrorType<AiFailureResponse | PhotoDuplicateConflict>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmPhotoExpense>>, TError,ConfirmPhotoExpenseMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof confirmPhotoExpense>>, TError,ConfirmPhotoExpenseMutationVariables, TContext> => {
 
@@ -271,11 +279,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type ConfirmPhotoExpenseMutationResult = NonNullable<Awaited<ReturnType<typeof confirmPhotoExpense>>>
-    export type ConfirmPhotoExpenseMutationBody = BodyType<ConfirmPhotoExpenseBody>
-    export type ConfirmPhotoExpenseMutationError = ErrorType<AiFailureResponse>
-    export type ConfirmPhotoExpenseMutationVariables = {data: BodyType<ConfirmPhotoExpenseBody>}
+    export type ConfirmPhotoExpenseMutationBody = BodyType<PhotoConfirmationInput>
+    export type ConfirmPhotoExpenseMutationError = ErrorType<AiFailureResponse | PhotoDuplicateConflict>
+    export type ConfirmPhotoExpenseMutationVariables = {data: BodyType<PhotoConfirmationInput>}
 
-    export const useConfirmPhotoExpense = <TError = ErrorType<AiFailureResponse>,
+    export const useConfirmPhotoExpense = <TError = ErrorType<AiFailureResponse | PhotoDuplicateConflict>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmPhotoExpense>>, TError,ConfirmPhotoExpenseMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof confirmPhotoExpense>>,
@@ -295,7 +303,7 @@ export const getAnalyzeClientPaymentsUrl = (clientId: number,) => {
 }
 
 export const analyzeClientPayments = async (clientId: number,
-    analyzeClientPaymentsBody: AnalyzeClientPaymentsBody, options?: Parameters<typeof customFetch>[1]): Promise<AnalyzeClientPayments200> => {
+    paymentAnalysisInput: PaymentAnalysisInput, options?: Parameters<typeof customFetch>[1]): Promise<AnalyzeClientPayments200> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -316,7 +324,7 @@ return customFetch<AnalyzeClientPayments200>(getAnalyzeClientPaymentsUrl(clientI
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(analyzeClientPaymentsBody)
+    body: JSON.stringify(paymentAnalysisInput)
   }
 );}
 
@@ -354,9 +362,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type AnalyzeClientPaymentsMutationResult = NonNullable<Awaited<ReturnType<typeof analyzeClientPayments>>>
-    export type AnalyzeClientPaymentsMutationBody = BodyType<AnalyzeClientPaymentsBody>
+    export type AnalyzeClientPaymentsMutationBody = BodyType<PaymentAnalysisInput>
     export type AnalyzeClientPaymentsMutationError = ErrorType<AiFailureResponse>
-    export type AnalyzeClientPaymentsMutationVariables = {clientId: number;data: BodyType<AnalyzeClientPaymentsBody>}
+    export type AnalyzeClientPaymentsMutationVariables = {clientId: number;data: BodyType<PaymentAnalysisInput>}
 
     export const useAnalyzeClientPayments = <TError = ErrorType<AiFailureResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeClientPayments>>, TError,AnalyzeClientPaymentsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

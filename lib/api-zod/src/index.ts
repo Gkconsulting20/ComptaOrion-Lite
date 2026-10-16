@@ -1,5 +1,4 @@
 export * from "./generated/api";
-// Request body schema values and generated TS types share names. Keep the
-// generated type namespace separate instead of ambiguous wildcard re-exports.
+// Keep the namespaced type export for existing consumers.
 export * as ApiTypes from "./generated/types";
-export type { HealthStatus, PhotoExpenseDraft, PaymentScore } from "./generated/types";
+export * from './generated/types';

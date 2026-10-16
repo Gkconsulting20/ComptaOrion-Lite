@@ -1,6 +1,6 @@
 import express from 'express';
 import { db } from '../db.js';
-import { depenses, categoriesDepenses, approvalsDepenses, remboursementsEmployes, auditLogs, employes, liteIdempotency } from '../schema.js';
+import { depenses, categoriesDepenses, approvalsDepenses, remboursementsEmployes, auditLogs, employes, liteIdempotency, entreprises } from '../schema.js';
 import { eq, and, gte, lte, desc } from 'drizzle-orm';
 import { createEcritureDepense } from '../services/comptabiliteService.js';
 import { claimIdempotentOperation } from '../middleware/idempotency.js';
@@ -50,6 +50,10 @@ export async function createExpense(req, res) {
       return res.status(400).json({ error: 'Montant, date et description sont obligatoires et doivent être valides' });
     }
     const result = await db.transaction(async (tx) => {
+    // Shared by photo and ordinary writes so a photo review cannot race a
+    // concurrent expense creation in this company. Other companies stay independent.
+    await tx.select({ id: entreprises.id }).from(entreprises)
+      .where(eq(entreprises.id, req.entrepriseId)).for('update');
     const idempotency = await claimIdempotentOperation({
       entrepriseId: req.entrepriseId,
       idempotencyKey: req.idempotencyKey,
@@ -68,6 +72,7 @@ export async function createExpense(req, res) {
       },
     });
     if (idempotency.replay) return idempotency;
+    if (req.beforeCreateExpense) await req.beforeCreateExpense(tx);
     let categorie = null;
 
     if (categorieId) {
@@ -126,7 +131,7 @@ export async function createExpense(req, res) {
     return res.status(result.status).json(result.body);
   } catch (error) {
     const status = error.status || 500;
-    res.status(status).json({ error: status >= 500
+    res.status(status).json({ ...(status === 409 && error.details ? error.details : {}), error: status >= 500
       ? 'Impossible d’enregistrer la dépense. Le brouillon est conservé; réessayez.'
       : error.message });
   }

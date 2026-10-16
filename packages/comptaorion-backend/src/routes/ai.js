@@ -1,12 +1,12 @@
 import express from 'express';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db.js';
-import { clients, entreprises, factures, paiements, liteIdempotency } from '../schema.js';
+import { clients, entreprises, factures, paiements, liteIdempotency, depenses } from '../schema.js';
 import { createExpense } from './dépenses.js';
 import { ensureIdempotencyTable } from '../middleware/idempotency.js';
 import { AiError, GROQ_MODEL, GROQ_LICENSE, groqJson } from '../services/groq.js';
 import { computePaymentScore, anonymousScoreSummary } from '../services/paymentScore.js';
-import { validatePhoto, extractPhotoDraft, signDraft, verifyDraft, photoOperationKey, validateConfirmedDraft } from '../services/photoDraft.js';
+import { validatePhoto, extractPhotoDraft, signDraft, verifyDraft, photoOperationKey, validateConfirmedDraft, probablePhotoDuplicates, photoExpenseDescription, signDuplicateReview, acceptsDuplicateReview } from '../services/photoDraft.js';
 
 const router = express.Router();
 router.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
@@ -38,6 +38,14 @@ async function isDuplicate(entrepriseId, hash) {
   }
 }
 
+async function duplicateReview(connection, draft, hash, req) {
+  const expenses = await connection.select({
+    id: depenses.id, description: depenses.description, montant: depenses.montant, dateDepense: depenses.dateDepense,
+  }).from(depenses).where(eq(depenses.entrepriseId, req.entrepriseId));
+  const matches = probablePhotoDuplicates(draft, expenses);
+  return { matches, reviewToken: matches.length ? signDuplicateReview(hash, draft, matches, req.entrepriseId, req.user.id) : null };
+}
+
 router.get('/status', (_req, res) => res.json({ success: true, data: {
   configured: Boolean(process.env.GROQ_API_KEY), model: GROQ_MODEL, license: GROQ_LICENSE,
 } }));
@@ -50,12 +58,14 @@ router.post('/prepare-photo', async (req, res) => {
     const duplicate = await isDuplicate(req.entrepriseId, hash);
     if (duplicate) return res.json({ success: true, data: {
       draftToken: signDraft(hash, req.entrepriseId, req.user.id),
-      draft: { description: '', montant: null, dateDepense: null, reference: '', devise: '' },
+      draft: { description: '', montant: null, dateDepense: null, reference: '', fournisseur: '', devise: '' },
+      matches: [], reviewToken: null,
       warnings: ['Cette photo a déjà été enregistrée pour votre entreprise.'], duplicate: true,
     } });
     const result = await extractPhotoDraft(req.body.image);
+    const review = await duplicateReview(db, result.draft, hash, req);
     // Photo bytes are neither saved nor logged, including on provider errors.
-    return res.json({ success: true, data: { ...result, draftToken: signDraft(hash, req.entrepriseId, req.user.id), duplicate: false } });
+    return res.json({ success: true, data: { ...result, ...review, draftToken: signDraft(hash, req.entrepriseId, req.user.id), duplicate: false } });
   } catch (error) { return fail(res, error); }
 });
 
@@ -74,8 +84,19 @@ router.post('/confirm', async (req, res) => {
     // Server-owned key is stable for the image across users, reloads and retries.
     // Existing expense transaction atomically claims it and writes expense/audit.
     req.idempotencyKey = photoOperationKey(req.entrepriseId, hash);
+    const { duplicateChoice, reviewToken } = req.body;
+    // Executed after atomic replay detection, before any expense/category/audit
+    // insert. The company row lock serializes concurrent expense confirmations.
+    req.beforeCreateExpense = async tx => {
+      const review = await duplicateReview(tx, draft, hash, req);
+      if (review.matches.length && !acceptsDuplicateReview(duplicateChoice, reviewToken, hash, draft, review.matches, req.entrepriseId, req.user.id)) {
+        const error = new AiError('Des dépenses correspondent à cette pièce. Choisissez explicitement de conserver l’existant ou de créer une dépense distincte.', 409);
+        error.details = { code: 'PHOTO_DUPLICATES', ...review };
+        throw error;
+      }
+    };
     req.body = {
-      description: `${draft.description}${draft.reference ? ` · Réf. ${draft.reference}` : ''}`,
+      description: photoExpenseDescription(draft),
       montant: draft.montant, dateDepense: draft.dateDepense,
     };
     return createExpense(req, res);

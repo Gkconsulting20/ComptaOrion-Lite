@@ -73,7 +73,7 @@ test('validation photo : contenu, taille et type; aucune URL distante n’est ac
 });
 test('les champs incertains restent vides; la confirmation exige des valeurs valides', () => {
   assert.deepEqual(cleanDraft({ montant: '123', dateDepense: '2026-02-30', irrelevant: true }), {
-    montant: null, dateDepense: null, description: '', reference: '', devise: '',
+    montant: null, dateDepense: null, description: '', reference: '', fournisseur: '', devise: '',
   });
   assert.throws(() => validateConfirmedDraft({ description: 'Transport', montant: Infinity, dateDepense: '2026-10-16' }), e => e.status === 400);
   assert.equal(validateConfirmedDraft({ description: 'Transport', montant: 123, dateDepense: '2026-10-16', devise: 'FCFA' }).montant, 123);

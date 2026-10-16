@@ -23,6 +23,11 @@ export interface PhotoExpenseDraft {
   /** @maxLength 120 */
   reference: string;
   /**
+     * Optional visible business name; no contact book is sent to Groq
+     * @maxLength 120
+     */
+  fournisseur?: string;
+  /**
      * Must match company accounting currency at confirmation; no FX conversion
      * @maxLength 10
      */

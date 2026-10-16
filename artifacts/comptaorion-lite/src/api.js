@@ -78,6 +78,7 @@ class ApiClient {
           if (!retryResponse.ok) {
             const error = new Error(retryData.message || retryData.error || 'Erreur API');
             error.status = retryResponse.status;
+            error.data = retryData;
             throw error;
           }
           
@@ -91,6 +92,7 @@ class ApiClient {
       if (!response.ok) {
         const error = new Error(data.message || data.error || 'Erreur API');
         error.status = response.status;
+        error.data = data;
         throw error;
       }
       

@@ -5,6 +5,31 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface PaymentAnalysisInput {
+  /** Explicitly send anonymous ratios and counts to Groq for explanation */
+  explain?: boolean;
+}
+
+export interface PhotoPreparationInput {
+  /**
+     * JPEG/PNG/WebP base64 data URL, maximum decoded size 4 MiB; processed transiently, never saved
+     * @maxLength 5592500
+     */
+  image: string;
+  consent: true;
+}
+
+/**
+ * Explicitly create a distinct purchase after reviewing matches; never merges or deletes
+ */
+export type PhotoConfirmationInputDuplicateChoice = typeof PhotoConfirmationInputDuplicateChoice[keyof typeof PhotoConfirmationInputDuplicateChoice];
+
+
+export const PhotoConfirmationInputDuplicateChoice = {
+  '': '',
+  'create-new': 'create-new',
+} as const;
+
 export interface PhotoExpenseDraft {
   /** @maxLength 500 */
   description: string;
@@ -22,10 +47,63 @@ export interface PhotoExpenseDraft {
   /** @maxLength 120 */
   reference: string;
   /**
+     * Optional visible business name; no contact book is sent to Groq
+     * @maxLength 120
+     */
+  fournisseur?: string;
+  /**
      * Must match company accounting currency at confirmation; no FX conversion
      * @maxLength 10
      */
   devise: string;
+}
+
+export interface PhotoConfirmationInput {
+  draftToken: string;
+  confirmed: true;
+  draft: PhotoExpenseDraft;
+  /** Explicitly create a distinct purchase after reviewing matches; never merges or deletes */
+  duplicateChoice?: PhotoConfirmationInputDuplicateChoice;
+  /**
+     * Signed review of this draft and current matches; edits or new matches require another review
+     * @nullable
+     */
+  reviewToken?: string | null;
+}
+
+export type PhotoDuplicateMatchReasonsItem = typeof PhotoDuplicateMatchReasonsItem[keyof typeof PhotoDuplicateMatchReasonsItem];
+
+
+export const PhotoDuplicateMatchReasonsItem = {
+  reference: 'reference',
+  date: 'date',
+  montant: 'montant',
+  fournisseur: 'fournisseur',
+} as const;
+
+export interface PhotoDuplicateMatch {
+  id: number;
+  description: string;
+  montant: string;
+  dateDepense: string;
+  reference: string;
+  fournisseur: string;
+  reasons: PhotoDuplicateMatchReasonsItem[];
+}
+
+export type PhotoDuplicateConflictCode = typeof PhotoDuplicateConflictCode[keyof typeof PhotoDuplicateConflictCode];
+
+
+export const PhotoDuplicateConflictCode = {
+  PHOTO_DUPLICATES: 'PHOTO_DUPLICATES',
+} as const;
+
+export interface PhotoDuplicateConflict {
+  error: string;
+  code?: PhotoDuplicateConflictCode;
+  matches?: PhotoDuplicateMatch[];
+  /** @nullable */
+  reviewToken?: string | null;
 }
 
 export type PaymentScoreCoverage = typeof PaymentScoreCoverage[keyof typeof PaymentScoreCoverage];
@@ -103,31 +181,19 @@ export type GetAiStatus200 = {
   data: GetAiStatus200Data;
 };
 
-export type PreparePhotoBody = {
-  /**
-     * JPEG/PNG/WebP base64 data URL, maximum decoded size 4 MiB; processed transiently, never saved
-     * @maxLength 5592500
-     */
-  image: string;
-  consent: true;
-};
-
 export type PreparePhoto200Data = {
   draftToken: string;
   draft: PhotoExpenseDraft;
   warnings: string[];
   duplicate: boolean;
+  matches: PhotoDuplicateMatch[];
+  /** @nullable */
+  reviewToken: string | null;
 };
 
 export type PreparePhoto200 = {
   success: boolean;
   data: PreparePhoto200Data;
-};
-
-export type ConfirmPhotoExpenseBody = {
-  draftToken: string;
-  confirmed: true;
-  draft: PhotoExpenseDraft;
 };
 
 export type ConfirmPhotoExpense200 = {
@@ -136,11 +202,6 @@ export type ConfirmPhotoExpense200 = {
   montant: string;
   description: string;
   dateDepense: string;
-};
-
-export type AnalyzeClientPaymentsBody = {
-  /** Explicitly send anonymous ratios and counts to Groq for explanation */
-  explain?: boolean;
 };
 
 export type AnalyzeClientPayments200 = {

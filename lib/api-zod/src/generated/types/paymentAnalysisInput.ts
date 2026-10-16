@@ -6,7 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AnalyzeClientPaymentsBody = {
+export interface PaymentAnalysisInput {
   /** Explicitly send anonymous ratios and counts to Groq for explanation */
   explain?: boolean;
-};
+}

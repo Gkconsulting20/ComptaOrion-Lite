@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { PhotoDuplicateMatch } from './photoDuplicateMatch';
 import type { PhotoExpenseDraft } from './photoExpenseDraft';
 
 export type PreparePhoto200Data = {
@@ -12,4 +13,7 @@ export type PreparePhoto200Data = {
   draft: PhotoExpenseDraft;
   warnings: string[];
   duplicate: boolean;
+  matches: PhotoDuplicateMatch[];
+  /** @nullable */
+  reviewToken: string | null;
 };

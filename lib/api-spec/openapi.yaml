@@ -41,11 +41,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [image, consent]
-              properties:
-                image: { type: string, maxLength: 5592500, description: "JPEG/PNG/WebP base64 data URL, maximum decoded size 4 MiB; processed transiently, never saved" }
-                consent: { type: boolean, enum: [true] }
+              $ref: "#/components/schemas/PhotoPreparationInput"
       responses:
         "200":
           description: Uncommitted editable expense draft
@@ -58,12 +54,14 @@ paths:
                   success: { type: boolean }
                   data:
                     type: object
-                    required: [draftToken, draft, warnings, duplicate]
+                    required: [draftToken, draft, warnings, duplicate, matches, reviewToken]
                     properties:
                       draftToken: { type: string }
                       draft: { $ref: "#/components/schemas/PhotoExpenseDraft" }
                       warnings: { type: array, items: { type: string } }
                       duplicate: { type: boolean }
+                      matches: { type: array, items: { $ref: "#/components/schemas/PhotoDuplicateMatch" } }
+                      reviewToken: { type: [string, "null"] }
         "400": { $ref: "#/components/responses/AiFailure" }
         "413": { $ref: "#/components/responses/AiFailure" }
         "429": { $ref: "#/components/responses/AiFailure" }
@@ -78,12 +76,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [draftToken, confirmed, draft]
-              properties:
-                draftToken: { type: string }
-                confirmed: { type: boolean, enum: [true] }
-                draft: { $ref: "#/components/schemas/PhotoExpenseDraft" }
+              $ref: "#/components/schemas/PhotoConfirmationInput"
       responses:
         "200":
           description: Saved expense or identical replay (no second write)
@@ -100,7 +93,12 @@ paths:
                   dateDepense: { type: string }
         "400": { $ref: "#/components/responses/AiFailure" }
         "403": { $ref: "#/components/responses/AiFailure" }
-        "409": { $ref: "#/components/responses/AiFailure" }
+        "409":
+          description: Probable duplicates require explicit review; no expense is written
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoDuplicateConflict"
   /ai/payment-analysis/{clientId}:
     post:
       operationId: analyzeClientPayments
@@ -112,9 +110,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                explain: { type: boolean, default: false, description: "Explicitly send anonymous ratios and counts to Groq for explanation" }
+              $ref: "#/components/schemas/PaymentAnalysisInput"
       responses:
         "200":
           description: Deterministic indicative payment score, never a credit decision
@@ -156,6 +152,44 @@ components:
               message: { type: string }
               error: { type: string }
   schemas:
+    PaymentAnalysisInput:
+      type: object
+      properties:
+        explain: { type: boolean, default: false, description: "Explicitly send anonymous ratios and counts to Groq for explanation" }
+    PhotoPreparationInput:
+      type: object
+      required: [image, consent]
+      properties:
+        image: { type: string, maxLength: 5592500, description: "JPEG/PNG/WebP base64 data URL, maximum decoded size 4 MiB; processed transiently, never saved" }
+        consent: { type: boolean, enum: [true] }
+    PhotoConfirmationInput:
+      type: object
+      required: [draftToken, confirmed, draft]
+      properties:
+        draftToken: { type: string }
+        confirmed: { type: boolean, enum: [true] }
+        draft: { $ref: "#/components/schemas/PhotoExpenseDraft" }
+        duplicateChoice: { type: string, enum: ["", create-new], description: "Explicitly create a distinct purchase after reviewing matches; never merges or deletes" }
+        reviewToken: { type: [string, "null"], description: "Signed review of this draft and current matches; edits or new matches require another review" }
+    PhotoDuplicateMatch:
+      type: object
+      required: [id, description, montant, dateDepense, reference, fournisseur, reasons]
+      properties:
+        id: { type: integer }
+        description: { type: string }
+        montant: { type: string }
+        dateDepense: { type: string }
+        reference: { type: string }
+        fournisseur: { type: string }
+        reasons: { type: array, items: { type: string, enum: [reference, date, montant, fournisseur] } }
+    PhotoDuplicateConflict:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code: { type: string, enum: [PHOTO_DUPLICATES] }
+        matches: { type: array, items: { $ref: "#/components/schemas/PhotoDuplicateMatch" } }
+        reviewToken: { type: [string, "null"] }
     PhotoExpenseDraft:
       type: object
       required: [description, montant, dateDepense, reference, devise]
@@ -164,6 +198,7 @@ components:
         montant: { type: [number, "null"], exclusiveMinimum: 0, maximum: 999999999999.99 }
         dateDepense: { type: [string, "null"], description: "YYYY-MM-DD; must be valid and present at confirmation" }
         reference: { type: string, maxLength: 120 }
+        fournisseur: { type: string, maxLength: 120, description: "Optional visible business name; no contact book is sent to Groq" }
         devise: { type: string, maxLength: 10, description: "Must match company accounting currency at confirmation; no FX conversion" }
     PaymentScore:
       type: object

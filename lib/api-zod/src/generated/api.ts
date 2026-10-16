@@ -34,6 +34,8 @@ export const preparePhotoResponseDataDraftMontantMax = 999999999999.99;
 
 export const preparePhotoResponseDataDraftReferenceMax = 120;
 
+export const preparePhotoResponseDataDraftFournisseurMax = 120;
+
 export const preparePhotoResponseDataDraftDeviseMax = 10;
 
 
@@ -47,10 +49,21 @@ export const PreparePhotoResponse = zod.object({
   "montant": zod.number().gt(preparePhotoResponseDataDraftMontantExclusiveMin).max(preparePhotoResponseDataDraftMontantMax).nullable(),
   "dateDepense": zod.string().nullable().describe('YYYY-MM-DD; must be valid and present at confirmation'),
   "reference": zod.string().max(preparePhotoResponseDataDraftReferenceMax),
+  "fournisseur": zod.string().max(preparePhotoResponseDataDraftFournisseurMax).optional().describe('Optional visible business name; no contact book is sent to Groq'),
   "devise": zod.string().max(preparePhotoResponseDataDraftDeviseMax).describe('Must match company accounting currency at confirmation; no FX conversion')
 }),
   "warnings": zod.array(zod.string()),
-  "duplicate": zod.boolean()
+  "duplicate": zod.boolean(),
+  "matches": zod.array(zod.object({
+  "id": zod.number().int(),
+  "description": zod.string(),
+  "montant": zod.string(),
+  "dateDepense": zod.string(),
+  "reference": zod.string(),
+  "fournisseur": zod.string(),
+  "reasons": zod.array(zod.enum(['reference', 'date', 'montant', 'fournisseur']))
+})),
+  "reviewToken": zod.string().nullable()
 })
 })
 
@@ -61,6 +74,8 @@ export const confirmPhotoExpenseBodyDraftMontantExclusiveMin = 0;
 export const confirmPhotoExpenseBodyDraftMontantMax = 999999999999.99;
 
 export const confirmPhotoExpenseBodyDraftReferenceMax = 120;
+
+export const confirmPhotoExpenseBodyDraftFournisseurMax = 120;
 
 export const confirmPhotoExpenseBodyDraftDeviseMax = 10;
 
@@ -74,8 +89,11 @@ export const ConfirmPhotoExpenseBody = zod.object({
   "montant": zod.number().gt(confirmPhotoExpenseBodyDraftMontantExclusiveMin).max(confirmPhotoExpenseBodyDraftMontantMax).nullable(),
   "dateDepense": zod.string().nullable().describe('YYYY-MM-DD; must be valid and present at confirmation'),
   "reference": zod.string().max(confirmPhotoExpenseBodyDraftReferenceMax),
+  "fournisseur": zod.string().max(confirmPhotoExpenseBodyDraftFournisseurMax).optional().describe('Optional visible business name; no contact book is sent to Groq'),
   "devise": zod.string().max(confirmPhotoExpenseBodyDraftDeviseMax).describe('Must match company accounting currency at confirmation; no FX conversion')
-})
+}),
+  "duplicateChoice": zod.enum(['', 'create-new']).optional().describe('Explicitly create a distinct purchase after reviewing matches; never merges or deletes'),
+  "reviewToken": zod.string().nullish().describe('Signed review of this draft and current matches; edits or new matches require another review')
 })
 
 export const ConfirmPhotoExpenseResponse = zod.object({

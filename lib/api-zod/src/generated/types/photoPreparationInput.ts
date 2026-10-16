@@ -6,11 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PreparePhotoBody = {
+export interface PhotoPreparationInput {
   /**
      * JPEG/PNG/WebP base64 data URL, maximum decoded size 4 MiB; processed transiently, never saved
      * @maxLength 5592500
      */
   image: string;
   consent: true;
-};
+}
