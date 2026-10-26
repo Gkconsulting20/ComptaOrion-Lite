@@ -4,6 +4,8 @@ export default defineConfig({
   out: './drizzle',
   schema: './src/schema.js',
   dialect: 'postgresql',
-  strict: true,
+  // Keep additive schema setup non-interactive; Drizzle still prompts before
+  // destructive changes when --force is not supplied.
+  strict: false,
   dbCredentials: { url: process.env.DATABASE_URL }
 });
