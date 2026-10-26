@@ -87,8 +87,20 @@ export async function groqRequest(path, body, { fetcher = fetch, key = process.e
   catch { throw new AiError('Réponse Groq illisible. Aucun enregistrement effectué.'); }
 }
 
+async function withSingleRateLimitRetry(request) {
+  try {
+    return await request();
+  } catch (error) {
+    if (!(error instanceof AiError) || error.status !== 429) throw error;
+    const retryAfterMs = error.retryAfterMs ?? 1000;
+    if (retryAfterMs > MAX_AUTOMATIC_RETRY_MS) throw error;
+    await new Promise(resolve => setTimeout(resolve, Math.max(250, retryAfterMs)));
+    return request();
+  }
+}
+
 export async function checkGroqModel(options) {
-  const result = await groqRequest('/models', undefined, options);
+  const result = await withSingleRateLimitRetry(() => groqRequest('/models', undefined, options));
   if (!result.data?.some(m => m.id === GROQ_MODEL && m.active !== false)) {
     throw new AiError(`Le modèle autorisé ${GROQ_MODEL} n’est pas accessible sur ce compte. Aucun autre modèle ne sera utilisé.`, 503);
   }
@@ -119,16 +131,7 @@ export async function groqJson(messages, { schema, ...options } = {}) {
       json_schema: { name: 'lite_assistant_result', strict: true, schema },
     } : { type: 'json_object' },
   };
-  let result;
-  try {
-    result = await groqRequest('/chat/completions', body, options);
-  } catch (error) {
-    if (!(error instanceof AiError) || error.status !== 429) throw error;
-    const retryAfterMs = error.retryAfterMs ?? 1000;
-    if (retryAfterMs > MAX_AUTOMATIC_RETRY_MS) throw error;
-    await new Promise(resolve => setTimeout(resolve, Math.max(250, retryAfterMs)));
-    result = await groqRequest('/chat/completions', body, options);
-  }
+  const result = await withSingleRateLimitRetry(() => groqRequest('/chat/completions', body, options));
   if (result.choices?.[0]?.finish_reason !== 'stop') throw new AiError('Réponse IA incomplète. Réessayez avec une photo plus lisible.');
   try { return JSON.parse(result.choices[0].message.content); }
   catch { throw new AiError('Réponse IA invalide. Aucun enregistrement effectué.'); }
