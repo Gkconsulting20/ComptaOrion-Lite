@@ -304,6 +304,12 @@
   transform: translateY(-2px);
   border-color: var(--lite-coral);
 }
+.action-grid button.photo-entry-action {
+  border-color: var(--lite-coral);
+  background: #fff8f4;
+  font-weight: 700;
+}
+.action-grid button.photo-entry-action b { background: var(--lite-coral); }
 .action-grid b {
   display: grid;
   width: 30px;

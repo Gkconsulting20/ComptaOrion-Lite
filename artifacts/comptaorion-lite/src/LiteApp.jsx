@@ -138,8 +138,8 @@ function LiteShell({ user, onLogout }) {
   const logout = () => { localStorage.removeItem('token'); localStorage.removeItem('refreshToken'); localStorage.removeItem('user'); onLogout?.(); };
   const saveSettings = (next) => { setSettings(next); localStorage.setItem(`lite-settings-${user.id || user.entrepriseId}`, JSON.stringify(next)); setToast(t('Préférences enregistrées', 'Preferences saved')); };
   const nav = [
-    ['today', t('Aujourd’hui', 'Today'), '⌂'], ['sales', t('Ventes', 'Sales'), '+'], ['debts', t('Clients & dettes', 'Customers & debts'), '◎'],
-    ['expenses', t('Dépenses', 'Expenses'), '−'], ['stock', t('Stock', 'Stock'), '□'], ['reports', t('Reçus & rapports', 'Receipts & reports'), '▤'], ['assistant', t('Assistant', 'Assistant'), 'A'], ['settings', t('Réglages', 'Settings'), 'S']
+     ['today', t('Aujourd’hui', 'Today'), '⌂'], ['sales', t('Ventes', 'Sales'), '+'], ['debts', t('Clients & dettes', 'Customers & debts'), '◎'],
+     ['expenses', t('Dépenses', 'Expenses'), '−'], ['stock', t('Stock', 'Stock'), '□'], ['reports', t('Reçus & rapports', 'Receipts & reports'), '▤'], ['assistant', t('Saisie par photo', 'Photo entry'), '▧'], ['settings', t('Réglages', 'Settings'), 'S']
   ];
   return <div className="lite-app">
     <aside className="lite-sidebar"><div className="lite-brand"><img src="/logo-comptaorion.png" alt="" /><span>ComptaOrion <b>Lite</b></span></div><nav>{nav.map(([id, label, mark]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><i>{mark}</i>{label}</button>)}</nav><div className="lite-side-foot"><span className="avatar">{(user.prenom || user.nom || 'O').slice(0, 1).toUpperCase()}</span><span>{user.prenom || user.nom || 'Mon entreprise'}</span></div></aside>
@@ -151,7 +151,7 @@ function LiteShell({ user, onLogout }) {
         {page === 'reports' && <><FinancialStatements settings={settings} t={t} /><LiteReports data={visibleData} settings={settings} t={t} /></>}
       {page === 'assistant' && <AiAssistant settings={settings} t={t} notify={setToast} reload={load} setPage={setPage} />}
       {page === 'settings' && <Settings settings={settings} saveSettings={saveSettings} t={t} logout={logout} installPrompt={installPrompt} />}
-    </div></div>{toast && <div className="lite-toast">{toast}<span></span></div>}<nav className="lite-bottom-nav">{nav.slice(0, 5).map(([id, label, mark]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><i>{mark}</i><small>{label}</small></button>)}<button className={page === 'assistant' ? 'active' : ''} onClick={() => setPage('assistant')}><i>A</i><small>{t('Assistant', 'Assistant')}</small></button><button className={page === 'reports' || page === 'settings' ? 'active' : ''} onClick={() => setPage(page === 'reports' ? 'settings' : 'reports')}><i>•••</i><small>{page === 'reports' ? t('Réglages', 'Settings') : t('Plus', 'More')}</small></button></nav></main>
+     </div></div>{toast && <div className="lite-toast">{toast}<span></span></div>}<nav className="lite-bottom-nav">{nav.slice(0, 5).map(([id, label, mark]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><i>{mark}</i><small>{label}</small></button>)}<button className={page === 'assistant' ? 'active' : ''} onClick={() => setPage('assistant')}><i>▧</i><small>{t('Photo', 'Photo')}</small></button><button className={page === 'reports' || page === 'settings' ? 'active' : ''} onClick={() => setPage(page === 'reports' ? 'settings' : 'reports')}><i>•••</i><small>{page === 'reports' ? t('Réglages', 'Settings') : t('Plus', 'More')}</small></button></nav></main>
   </div>;
 }
 
@@ -159,10 +159,19 @@ function PageHead({ eyebrow, title, action, children }) { return <div className=
 function Today({ data, settings, t, setPage }) {
   const day = today(), sales = data.invoices.filter(i => dateOf(i.dateFacture) === day && i.statut !== 'annulee'), expenses = data.expenses.filter(e => dateOf(e.dateDepense) === day);
   const totalSales = Number(data.daySummary?.ventes ?? sales.reduce((s, x) => s + Number(x.totalTTC || 0), 0)), totalReceived = Number(data.daySummary?.encaissements ?? sales.reduce((s, x) => s + Number(x.montantPaye || 0), 0)), totalExpenses = expenses.reduce((s, x) => s + Number(x.montant || 0), 0), debts = data.invoices.reduce((s, x) => s + Number(x.soldeRestant || 0), 0);
-  return <><PageHead eyebrow={new Date().toLocaleDateString(settings.language === 'fr' ? 'fr-FR' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} title={t('Bonjour, voici votre journée.', 'Good morning, here is your day.')}><p className="muted">{t('Les chiffres essentiels, sans détour.', 'The essentials, without the noise.')}</p></PageHead>
+  return <>
+    <PageHead eyebrow={new Date().toLocaleDateString(settings.language === 'fr' ? 'fr-FR' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} title={t('Bonjour, voici votre journée.', 'Good morning, here is your day.')}><p className="muted">{t('Les chiffres essentiels, sans détour.', 'The essentials, without the noise.')}</p></PageHead>
     <section className="hero-metric"><span>{t('Solde de caisse du jour', 'Today’s cash balance')}</span><strong>{money(totalReceived - totalExpenses, settings.currency)}</strong><small>{t('Encaissements moins dépenses du jour', 'Today’s payments received minus expenses')}</small></section>
     <div className="metric-grid"><Metric label={t('Ventes du jour', 'Today’s sales')} value={money(totalSales, settings.currency)} tone="coral" /><Metric label={t('Dépenses', 'Expenses')} value={money(totalExpenses, settings.currency)} tone="sand" /><Metric label={t('Impayés', 'Unpaid')} value={money(debts, settings.currency)} tone="ink" /><Metric label={t('Stock faible', 'Low stock')} value={data.lowStock.length} tone="mint" /></div>
-    <section className="quick-actions"><div className="section-title"><h2>{t('Gagner du temps', 'Save time')}</h2><span>{t('Actions rapides', 'Quick actions')}</span></div><div className="action-grid"><button onClick={() => setPage('sales')}><b>+</b><span>{t('Nouvelle vente', 'New sale')}</span></button><button onClick={() => setPage('expenses')}><b>−</b><span>{t('Ajouter une dépense', 'Add expense')}</span></button><button onClick={() => setPage('debts')}><b>◎</b><span>{t('Relancer un client', 'Remind customer')}</span></button></div></section>
+    <section className="quick-actions">
+      <div className="section-title"><h2>{t('Gagner du temps', 'Save time')}</h2><span>{t('Actions rapides', 'Quick actions')}</span></div>
+      <div className="action-grid">
+        <button onClick={() => setPage('sales')}><b>+</b><span>{t('Nouvelle vente', 'New sale')}</span></button>
+        <button onClick={() => setPage('expenses')}><b>−</b><span>{t('Ajouter une dépense', 'Add expense')}</span></button>
+        <button onClick={() => setPage('debts')}><b>◎</b><span>{t('Relancer un client', 'Remind customer')}</span></button>
+        <button className="photo-entry-action" onClick={() => setPage('assistant')} data-testid="button-photo-entry"><b>▧</b><span>{t('Saisir une facture par photo', 'Enter an invoice from a photo')}</span></button>
+      </div>
+    </section>
     <section className="activity"><div className="section-title"><h2>{t('Dernière activité', 'Recent activity')}</h2><button onClick={() => setPage('reports')}>{t('Voir tout', 'View all')}</button></div>{[...sales, ...expenses].slice(0, 5).map((x, i) => <div className="activity-row" key={x.id || i}><span className={`activity-mark ${x.montant ? 'out' : 'in'}`}>{x.montant ? '−' : '+'}</span><div><strong>{x.montant ? x.description : x.client?.nom || t('Vente comptant', 'Cash sale')}</strong><small>{dateOf(x.dateDepense || x.dateFacture)}</small></div><b>{money(x.montant || x.totalTTC, settings.currency)}</b></div>)}{sales.length + expenses.length === 0 && <Empty text={t('Votre journée commence ici.', 'Your day starts here.')} />}</section>
   </>;
 }
