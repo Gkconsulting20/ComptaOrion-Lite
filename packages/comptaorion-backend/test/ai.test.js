@@ -104,6 +104,24 @@ test('la photo est transmise uniquement dans le message utilisateur, sans identi
   assert.equal(calls[1].body.messages[1].content[1].image_url.url, image);
   assert.doesNotMatch(JSON.stringify(calls[1].body), /entrepriseId|userId|api_key/);
 });
+test('Groq retente une seule fois un 429 bref puis termine la lecture', async () => {
+  let chatCalls = 0;
+  const result = await groqJson([], {
+    key: fixtureKey,
+    fetcher: async url => {
+      if (url.endsWith('/models')) return Response.json({ data: [{ id: GROQ_MODEL, active: true }] });
+      chatCalls += 1;
+      if (chatCalls === 1) {
+        return Response.json({ error: { type: 'tokens', code: 'rate_limit_exceeded', message: 'private document text' } }, {
+          status: 429, headers: { 'x-ratelimit-reset-tokens': '1ms' },
+        });
+      }
+      return Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"ok":true}' } }] });
+    },
+  });
+  assert.deepEqual(result, { ok: true });
+  assert.equal(chatCalls, 2);
+});
 test('absence de clé, quotas, indisponibilité et JSON invalide échouent explicitement sans exposer le fournisseur', async () => {
   await assert.rejects(checkGroqModel({ key: '' }), e => e.status === 503);
   for (const status of [401, 403, 429, 500]) {
