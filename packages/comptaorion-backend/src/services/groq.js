@@ -27,9 +27,19 @@ export async function groqRequest(path, body, { fetcher = fetch, key = process.e
   if (!response.ok) {
     if ([401, 403].includes(response.status)) throw new AiError('Vérifiez la clé Groq et les autorisations du modèle côté serveur.', 503);
     if (response.status === 429) {
+      let providerErrorType = null;
+      let providerErrorCode = null;
+      try {
+        const providerError = (await response.clone().json())?.error;
+        const safeField = value => typeof value === 'string' && /^[a-zA-Z0-9_.:-]{1,80}$/.test(value) ? value : null;
+        providerErrorType = safeField(providerError?.type);
+        providerErrorCode = safeField(providerError?.code);
+      } catch {}
       const diagnostics = {
         path,
         status: response.status,
+        providerErrorType,
+        providerErrorCode,
         retryAfter: response.headers.get('retry-after'),
         requestLimit: response.headers.get('x-ratelimit-limit-requests'),
         requestsRemaining: response.headers.get('x-ratelimit-remaining-requests'),
@@ -39,7 +49,8 @@ export async function groqRequest(path, body, { fetcher = fetch, key = process.e
         tokenReset: response.headers.get('x-ratelimit-reset-tokens'),
       };
       console.warn('[Groq] Rate limit response (safe metadata only):', JSON.stringify(diagnostics));
-      throw new AiError(`Groq a limité la requête ${path}. Réessayez plus tard.`, 429);
+      const step = path === '/models' ? 'la vérification du modèle' : 'la lecture de la facture';
+      throw new AiError(`Groq a limité ${step}. Réessayez plus tard.`, 429);
     }
     throw new AiError('Groq n’a pas pu traiter la demande. Vérifiez le modèle et réessayez.');
   }
