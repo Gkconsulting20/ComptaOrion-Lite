@@ -26,7 +26,21 @@ export async function groqRequest(path, body, { fetcher = fetch, key = process.e
   // Never return provider bodies, which can echo document contents.
   if (!response.ok) {
     if ([401, 403].includes(response.status)) throw new AiError('Vérifiez la clé Groq et les autorisations du modèle côté serveur.', 503);
-    if (response.status === 429) throw new AiError('Limite Groq atteinte. Réessayez plus tard.', 429);
+    if (response.status === 429) {
+      const diagnostics = {
+        path,
+        status: response.status,
+        retryAfter: response.headers.get('retry-after'),
+        requestLimit: response.headers.get('x-ratelimit-limit-requests'),
+        requestsRemaining: response.headers.get('x-ratelimit-remaining-requests'),
+        requestReset: response.headers.get('x-ratelimit-reset-requests'),
+        tokenLimit: response.headers.get('x-ratelimit-limit-tokens'),
+        tokensRemaining: response.headers.get('x-ratelimit-remaining-tokens'),
+        tokenReset: response.headers.get('x-ratelimit-reset-tokens'),
+      };
+      console.warn('[Groq] Rate limit response (safe metadata only):', JSON.stringify(diagnostics));
+      throw new AiError(`Groq a limité la requête ${path}. Réessayez plus tard.`, 429);
+    }
     throw new AiError('Groq n’a pas pu traiter la demande. Vérifiez le modèle et réessayez.');
   }
   try { return await response.json(); }
