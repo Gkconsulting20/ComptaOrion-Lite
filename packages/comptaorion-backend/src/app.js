@@ -7,6 +7,7 @@ import clientsRoutes from './routes/clients.js';
 import produitsRoutes from './routes/produits.js';
 import facturesRoutes from './routes/factures.js';
 import depensesRoutes from './routes/dépenses.js';
+import financialReportsRoutes from './routes/financial-reports.js';
 import aiRoutes from './routes/ai.js';
 import { authMiddleware, entrepriseIsolation } from './auth.js';
 import { createTenantMiddleware } from './utils/rlsPolicies.js';
@@ -25,6 +26,7 @@ app.use('/api/clients', clientsRoutes);
 app.use('/api/produits', produitsRoutes);
 app.use('/api/factures', facturesRoutes);
 app.use('/api/depenses', depensesRoutes);
+app.use('/api/financial-reports', financialReportsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use((error, _req, res, next) => {
   if (error.type === 'entity.too.large') return res.status(413).json({ success: false, message: 'Photo trop volumineuse (4 Mio maximum).' });

@@ -95,9 +95,14 @@ router.post('/confirm', async (req, res) => {
         throw error;
       }
     };
+    const modePaiement = req.body.modePaiement || 'especes';
+    if (!['especes', 'banque'].includes(modePaiement)) {
+      throw new AiError('Mode de paiement invalide.', 400);
+    }
+    req.isLiteExpense = true;
     req.body = {
       description: photoExpenseDescription(draft),
-      montant: draft.montant, dateDepense: draft.dateDepense,
+      montant: draft.montant, dateDepense: draft.dateDepense, modePaiement,
     };
     return createExpense(req, res);
   } catch (error) { return fail(res, error); }

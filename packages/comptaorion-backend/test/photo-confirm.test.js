@@ -15,7 +15,21 @@ const existing = (id, entrepriseId = 9, value = draft) => ({ id, entrepriseId, d
 // Transactional adapter exercises the real HTTP route, SQL tenant predicates,
 // rollback, replay, and expense/audit path without an external database/provider.
 async function withApi(initial, run) {
-  let state = { depenses: initial, lite_idempotency: [], categories_depenses: [], approvals_depenses: [], audit_logs: [] };
+  let state = {
+    depenses: initial,
+    lite_idempotency: [],
+    categories_depenses: [],
+    approvals_depenses: [],
+    audit_logs: [],
+    comptes_comptables: [
+      { id: 1, entrepriseId: 9, numero: '62', nom: 'Autres charges externes' },
+      { id: 2, entrepriseId: 9, numero: '57', nom: 'Caisse' },
+    ],
+    journaux: [],
+    ecritures: [],
+    lignes_ecriture: [],
+    parametres_comptables: [],
+  };
   const queries = [];
   const connection = (current, transaction = false) => ({
     select() {
@@ -29,6 +43,14 @@ async function withApi(initial, run) {
           return current.depenses.filter(row => row.entrepriseId === query.params[0]);
         }
         if (table === 'lite_idempotency') return current[table].filter(row => row.idempotencyKey === query.params[0]);
+        if (table === 'comptes_comptables') {
+          const prefix = query.params.find(value => typeof value === 'string' && value.endsWith('%'))?.slice(0, -1);
+          return current[table].filter(row =>
+            row.entrepriseId === query.params[0] && (!prefix || row.numero.startsWith(prefix))
+          );
+        }
+        if (table === 'journaux') return current[table].filter(row => row.entrepriseId === query.params[0] && row.code === query.params[1]);
+        if (table === 'parametres_comptables') return current[table].filter(row => row.entrepriseId === query.params[0]);
         return current[table] || [];
       };
       const chain = {
@@ -116,6 +138,11 @@ test('autres entreprises invisibles; une dépense indépendante est enregistrée
   await withApi([existing(1, 10)], async (confirm, state, queries) => {
     assert.equal((await confirm('a')).status, 200);
     assert.equal(state().depenses.length, 2);
+    assert.equal(state().ecritures.length, 1);
+    assert.equal(state().lignes_ecriture.length, 2);
+    assert.equal(state().ecritures[0].valide, false);
+    assert.equal(state().lignes_ecriture.reduce((total, line) => total + Number(line.debit), 0), 25.5);
+    assert.equal(state().lignes_ecriture.reduce((total, line) => total + Number(line.credit), 0), 25.5);
     assert.ok(queries.filter(q => q.table === 'depenses').every(q => q.params[0] === 9));
   });
 });

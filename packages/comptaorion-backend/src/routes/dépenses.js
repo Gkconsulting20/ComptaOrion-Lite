@@ -2,7 +2,7 @@ import express from 'express';
 import { db } from '../db.js';
 import { depenses, categoriesDepenses, approvalsDepenses, remboursementsEmployes, auditLogs, employes, liteIdempotency, entreprises } from '../schema.js';
 import { eq, and, gte, lte, desc } from 'drizzle-orm';
-import { createEcritureDepense } from '../services/comptabiliteService.js';
+import { createEcritureDepense, createEcritureDepenseLite } from '../services/comptabiliteService.js';
 import { claimIdempotentOperation } from '../middleware/idempotency.js';
 
 const router = express.Router();
@@ -48,6 +48,11 @@ export async function createExpense(req, res) {
     const parsedDate = dateDepense ? new Date(dateDepense) : new Date();
     if (!Number.isFinite(numericAmount) || numericAmount <= 0 || Number.isNaN(parsedDate.getTime()) || !String(description || '').trim()) {
       return res.status(400).json({ error: 'Montant, date et description sont obligatoires et doivent être valides' });
+    }
+    const isLiteExpense = req.isLiteExpense === true;
+    const modePaiement = req.body.modePaiement || 'especes';
+    if (isLiteExpense && !['especes', 'banque'].includes(modePaiement)) {
+      return res.status(400).json({ error: 'Mode de paiement invalide' });
     }
     const result = await db.transaction(async (tx) => {
     // Shared by photo and ordinary writes so a photo review cannot race a
@@ -101,17 +106,30 @@ export async function createExpense(req, res) {
       justificatifUrl,
       récurrente: récurrente || false,
       fréquenceRécurrence,
-      statut: 'en_attente',
-      montantApprouve: 0
+      statut: isLiteExpense ? 'approuvée' : 'en_attente',
+      montantApprouve: isLiteExpense ? numericAmount : 0
     }).returning();
 
-    // Créer demande d'approbation initiale
-    await tx.insert(approvalsDepenses).values({
-      entrepriseId: req.entrepriseId,
-      depenseId: depense[0].id,
-      etape: 'manager',
-      statut: 'en_attente'
-    });
+    let ecritureComptable = null;
+    if (isLiteExpense) {
+      ecritureComptable = await createEcritureDepenseLite({
+        entrepriseId: req.entrepriseId,
+        reference: `LITE-EXP-${depense[0].id}`,
+        dateDepense: depense[0].dateDepense,
+        description: depense[0].description,
+        montant: numericAmount,
+        modePaiement,
+        executor: tx
+      });
+    } else {
+      // Les dépenses du workflow standard restent soumises aux approbations.
+      await tx.insert(approvalsDepenses).values({
+        entrepriseId: req.entrepriseId,
+        depenseId: depense[0].id,
+        etape: 'manager',
+        statut: 'en_attente'
+      });
+    }
 
     // Audit
     await tx.insert(auditLogs).values({
@@ -124,7 +142,7 @@ export async function createExpense(req, res) {
       ipAddress
     });
 
-    const body = depense[0];
+    const body = { ...depense[0], ecritureComptableId: ecritureComptable?.id || null };
     if (req.idempotencyKey) await tx.update(liteIdempotency).set({ status: 'completed', responseStatus: 200, responseBody: body, updatedAt: new Date() }).where(and(eq(liteIdempotency.entrepriseId, req.entrepriseId), eq(liteIdempotency.idempotencyKey, req.idempotencyKey)));
     return { replay: false, status: 200, body };
     });
@@ -137,6 +155,10 @@ export async function createExpense(req, res) {
   }
 }
 router.post('/create', createExpense);
+router.post('/lite-create', (req, res) => {
+  req.isLiteExpense = true;
+  return createExpense(req, res);
+});
 
 router.get('/list', async (req, res) => {
   try {

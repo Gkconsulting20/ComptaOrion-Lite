@@ -35,7 +35,7 @@ export default function AiAssistant({ t, settings, notify, reload, setPage }) {
       const image = await readAsDataUrl(file);
       const r = await api.post('/ai/prepare-photo', { image, consent: true });
       const d = r?.data; if (!d?.draft) throw new Error(t('Réponse inattendue du serveur.', 'Unexpected server response.'));
-      setResult(d); setDraft({ description: d.draft.description || '', montant: d.draft.montant ?? '', dateDepense: d.draft.dateDepense || '', reference: d.draft.reference || '', fournisseur: d.draft.fournisseur || '', devise: d.draft.devise || '' }); setConfirmed(false); setDuplicateChoice('');
+      setResult(d); setDraft({ description: d.draft.description || '', montant: d.draft.montant ?? '', dateDepense: d.draft.dateDepense || '', reference: d.draft.reference || '', fournisseur: d.draft.fournisseur || '', devise: d.draft.devise || '', modePaiement: 'especes' }); setConfirmed(false); setDuplicateChoice('');
     } catch (e) { setError(e?.message || t('Analyse impossible.', 'Analysis failed.')); }
     finally { setBusy(false); }
   };
@@ -52,7 +52,7 @@ export default function AiAssistant({ t, settings, notify, reload, setPage }) {
     if (!navigator.onLine) { setError(t('Cette opération nécessite une connexion.', 'This operation requires a connection.')); return; }
     setSaving(true); setError('');
     try {
-      await api.post('/ai/confirm', { draftToken: result.draftToken, confirmed: true, duplicateChoice, reviewToken: result.reviewToken, draft: { description: draft.description.trim(), montant: Number(draft.montant), dateDepense: draft.dateDepense, reference: draft.reference.trim(), fournisseur: draft.fournisseur.trim(), devise: draft.devise } });
+      await api.post('/ai/confirm', { draftToken: result.draftToken, confirmed: true, duplicateChoice, reviewToken: result.reviewToken, modePaiement: draft.modePaiement, draft: { description: draft.description.trim(), montant: Number(draft.montant), dateDepense: draft.dateDepense, reference: draft.reference.trim(), fournisseur: draft.fournisseur.trim(), devise: draft.devise } });
       setDone(true); setResult(null); setDraft(null); setConfirmed(false); clearPhoto(); notify(t('Dépense enregistrée', 'Expense saved')); reload();
     } catch (e) {
       if (e?.status === 409 && e.data?.code === 'PHOTO_DUPLICATES') {
@@ -109,6 +109,7 @@ export default function AiAssistant({ t, settings, notify, reload, setPage }) {
           <label>{t('Montant', 'Amount')}<input type="number" min="0.01" step="0.01" required value={draft.montant} onChange={e => edit({ montant: e.target.value })} /></label>
           <label>{t('Date', 'Date')}<input type="date" required value={draft.dateDepense} onChange={e => edit({ dateDepense: e.target.value })} /></label>
         </div>
+        <label>{t('Mode de paiement', 'Payment method')}<select value={draft.modePaiement} onChange={e => edit({ modePaiement: e.target.value })}><option value="especes">{t('Espèces', 'Cash')}</option><option value="banque">{t('Banque / virement', 'Bank / transfer')}</option></select></label>
         <div className="form-split">
           <label>{t('Référence', 'Reference')}<input value={draft.reference} onChange={e => edit({ reference: e.target.value })} /></label>
           <label>{t('Devise', 'Currency')}<input required placeholder={t('Ex. FCFA, EUR', 'E.g. XOF, EUR')} value={draft.devise} onChange={e => edit({ devise: e.target.value })} /></label>

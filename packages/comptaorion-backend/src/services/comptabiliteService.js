@@ -533,6 +533,46 @@ export async function createEcritureDepense(params) {
   });
 }
 
+export async function createEcritureDepenseLite(params) {
+  const {
+    entrepriseId,
+    reference,
+    dateDepense,
+    description,
+    montant,
+    modePaiement = 'especes',
+    executor = db
+  } = params;
+
+  const compteCharge = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.AUTRES_CHARGES_EXTERNES, executor);
+  const compteTresorerie = modePaiement === 'especes'
+    ? await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CAISSE, executor)
+    : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.BANQUE, executor);
+
+  if (!compteCharge || !compteTresorerie) {
+    throw new Error('Les comptes de charge et de trésorerie doivent être configurés avant d’enregistrer cette dépense.');
+  }
+
+  const journalCode = modePaiement === 'especes' ? JOURNAL_CODES.CAISSE : JOURNAL_CODES.BANQUE;
+  const journalNom = modePaiement === 'especes' ? 'Journal de Caisse' : 'Journal de Banque';
+
+  return createEcritureComptable({
+    entrepriseId,
+    journalCode,
+    journalNom,
+    journalType: modePaiement === 'especes' ? 'caisse' : 'banque',
+    dateEcriture: dateDepense,
+    libelle: `Dépense Lite - ${description}`,
+    numeroPiece: reference,
+    lignes: [
+      { compteComptableId: compteCharge.id, debit: montant, credit: 0, libelle: description },
+      { compteComptableId: compteTresorerie.id, debit: 0, credit: montant, libelle: description }
+    ],
+    valide: false,
+    executor
+  });
+}
+
 export async function createEcriturePaiementImpot(params) {
   const {
     entrepriseId,
