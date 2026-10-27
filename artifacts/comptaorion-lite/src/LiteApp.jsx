@@ -6,7 +6,11 @@ import AiAssistant from './AiAssistant.jsx';
 import PaymentAnalysis from './PaymentAnalysis.jsx';
 import FinancialStatements from './FinancialStatements.jsx';
 import TestReport from './TestReport.jsx';
+import PurchasesPage from './PurchasesPage.jsx';
+import { setAuthTokenGetter } from '@workspace/api-client-react';
 import './lite.css';
+
+setAuthTokenGetter(() => (typeof localStorage === 'undefined' ? null : localStorage.getItem('token')));
 
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const money = (v, currency = 'FCFA') => `${Math.round(Number(v) || 0).toLocaleString('fr-FR')} ${currency}`;
@@ -140,20 +144,21 @@ function LiteShell({ user, onLogout }) {
   const saveSettings = (next) => { setSettings(next); localStorage.setItem(`lite-settings-${user.id || user.entrepriseId}`, JSON.stringify(next)); setToast(t('Préférences enregistrées', 'Preferences saved')); };
   const nav = [
      ['today', t('Aujourd’hui', 'Today'), '⌂'], ['sales', t('Ventes', 'Sales'), '+'], ['debts', t('Clients & dettes', 'Customers & debts'), '◎'],
-     ['expenses', t('Dépenses', 'Expenses'), '−'], ['stock', t('Stock', 'Stock'), '□'], ['reports', t('Reçus & rapports', 'Receipts & reports'), '▤'], ['assistant', t('Saisie par photo', 'Photo entry'), '▧'], ['tests', t('Tests', 'Tests'), '✓'], ['settings', t('Réglages', 'Settings'), 'S']
+      ['expenses', t('Dépenses', 'Expenses'), '−'], ['stock', t('Stock', 'Stock'), '□'], ['purchases', t('Achats', 'Purchases'), '↗'], ['reports', t('Reçus & rapports', 'Receipts & reports'), '▤'], ['assistant', t('Saisie par photo', 'Photo entry'), '▧'], ['tests', t('Tests', 'Tests'), '✓'], ['settings', t('Réglages', 'Settings'), 'S']
   ];
   return <div className="lite-app">
-    <aside className="lite-sidebar"><div className="lite-brand"><img src="/logo-comptaorion.png" alt="" /><span>ComptaOrion <b>Lite</b></span></div><nav>{nav.map(([id, label, mark]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><i>{mark}</i>{label}</button>)}</nav><div className="lite-side-foot"><span className="avatar">{(user.prenom || user.nom || 'O').slice(0, 1).toUpperCase()}</span><span>{user.prenom || user.nom || 'Mon entreprise'}</span></div></aside>
+     <aside className="lite-sidebar"><div className="lite-brand"><img src="/logo-comptaorion.png" alt="" /><span>ComptaOrion <b>Lite</b></span></div><nav>{nav.map(([id, label, mark]) => <button key={id} data-testid={`nav-${id}`} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><i>{mark}</i>{label}</button>)}</nav><div className="lite-side-foot"><span className="avatar">{(user.prenom || user.nom || 'O').slice(0, 1).toUpperCase()}</span><span>{user.prenom || user.nom || 'Mon entreprise'}</span></div></aside>
      <main className="lite-main"><header className="lite-topbar"><div><span className={`network-dot ${online ? 'is-online' : ''}`}></span>{online ? t('En ligne', 'Online') : t('Hors connexion', 'Offline')}</div><div className="top-actions">{pending > 0 && <button className="sync-pill" onClick={syncQueue}>{pending} {t('à synchroniser', 'pending')}</button>}<button className="mobile-menu" onClick={() => setPage('today')}>ComptaOrion <b>Lite</b></button></div></header><div className="lite-content"><div className="lite-page">{page === 'today' && <Today data={visibleData} settings={settings} t={t} setPage={setPage} />}
         {page === 'sales' && <Sales data={visibleData} settings={settings} t={t} write={write} reload={load} notify={setToast} />}
       {page === 'debts' && <Debts data={data} settings={settings} t={t} write={write} reload={load} />}
        {page === 'expenses' && <Expenses data={visibleData} user={user} settings={settings} t={t} write={write} reload={load} />}
        {page === 'stock' && <Stock data={visibleData} settings={settings} t={t} write={write} reload={load} />}
+        {page === 'purchases' && <PurchasesPage products={data.products} settings={settings} t={t} onChanged={load} />}
         {page === 'reports' && <><FinancialStatements settings={settings} t={t} /><LiteReports data={visibleData} settings={settings} t={t} /></>}
       {page === 'assistant' && <AiAssistant settings={settings} t={t} notify={setToast} reload={load} setPage={setPage} />}
        {page === 'tests' && <TestReport t={t} />}
       {page === 'settings' && <Settings settings={settings} saveSettings={saveSettings} t={t} logout={logout} installPrompt={installPrompt} />}
-      </div></div>{toast && <div className="lite-toast">{toast}<span></span></div>}<nav className="lite-bottom-nav">{nav.slice(0, 5).map(([id, label, mark]) => <button key={id} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><i>{mark}</i><small>{label}</small></button>)}<button className={page === 'assistant' ? 'active' : ''} onClick={() => setPage('assistant')}><i>▧</i><small>{t('Photo', 'Photo')}</small></button><button className={page === 'tests' ? 'active' : ''} onClick={() => setPage('tests')}><i>✓</i><small>{t('Tests', 'Tests')}</small></button><button className={page === 'reports' || page === 'settings' ? 'active' : ''} onClick={() => setPage(page === 'reports' ? 'settings' : 'reports')}><i>•••</i><small>{page === 'reports' ? t('Réglages', 'Settings') : t('Plus', 'More')}</small></button></nav></main>
+       </div></div>{toast && <div className="lite-toast">{toast}<span></span></div>}<nav className="lite-bottom-nav">{nav.slice(0, 6).map(([id, label, mark]) => <button key={id} data-testid={`mobile-nav-${id}`} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><i>{mark}</i><small>{label}</small></button>)}<button className={page === 'assistant' ? 'active' : ''} onClick={() => setPage('assistant')}><i>▧</i><small>{t('Photo', 'Photo')}</small></button><button className={page === 'tests' ? 'active' : ''} onClick={() => setPage('tests')}><i>✓</i><small>{t('Tests', 'Tests')}</small></button><button className={page === 'reports' || page === 'settings' ? 'active' : ''} onClick={() => setPage(page === 'reports' ? 'settings' : 'reports')}><i>•••</i><small>{page === 'reports' ? t('Réglages', 'Settings') : t('Plus', 'More')}</small></button></nav></main>
   </div>;
 }
 

@@ -164,6 +164,112 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface Supplier {
+  id: number;
+  raisonSociale: string;
+  /** @nullable */
+  numeroFournisseur: string | null;
+  /** @nullable */
+  contactPrincipal?: string | null;
+  /** @nullable */
+  telephone: string | null;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  adresse?: string | null;
+  soldeDu: number;
+  actif: boolean;
+}
+
+export interface SupplierInput {
+  /**
+     * @minLength 1
+     * @maxLength 255
+     */
+  raisonSociale: string;
+  /** @maxLength 50 */
+  numeroFournisseur?: string;
+  /** @maxLength 255 */
+  contactPrincipal?: string;
+  /** @maxLength 50 */
+  telephone?: string;
+  /** @maxLength 255 */
+  email?: string;
+  adresse?: string;
+}
+
+export interface SuppliersResponse {
+  success: boolean;
+  count: number;
+  data: Supplier[];
+}
+
+export interface SupplierResponse {
+  success: boolean;
+  data: Supplier;
+}
+
+export interface LitePurchaseItemInput {
+  /** @minimum 1 */
+  produitId: number;
+  /** @exclusiveMinimum 0 */
+  quantite: number;
+  /** @minimum 0 */
+  prixUnitaire: number;
+}
+
+export interface LitePurchaseInput {
+  /** @minimum 1 */
+  fournisseurId: number;
+  /** @maxLength 100 */
+  numeroFactureFournisseur?: string;
+  dateFacture: string;
+  /** @nullable */
+  dateEcheance?: string | null;
+  notes?: string;
+  /**
+     * @minItems 1
+     * @maxItems 50
+     */
+  items: LitePurchaseItemInput[];
+}
+
+export interface PurchaseItem {
+  id: number;
+  produitId: number;
+  description: string;
+  quantite: number;
+  prixUnitaire: number;
+  totalLigne: number;
+}
+
+export interface PurchaseInvoice {
+  id: number;
+  numeroFacture: string;
+  /** @nullable */
+  numeroFactureFournisseur: string | null;
+  dateFacture: string;
+  statut: string;
+  totalHT: number;
+  totalTVA: number;
+  totalTTC: number;
+  montantPaye: number;
+  soldeRestant: number;
+  fournisseur: Supplier;
+  items: PurchaseItem[];
+}
+
+export interface PurchasesResponse {
+  success: boolean;
+  count: number;
+  data: PurchaseInvoice[];
+}
+
+export interface PurchaseResponse {
+  success: boolean;
+  data: PurchaseInvoice;
+}
+
 export type AiFailureResponse = {
   success?: boolean;
   message?: string;
@@ -208,3 +314,4 @@ export type AnalyzeClientPayments200 = {
   success: boolean;
   data: PaymentScore;
 };
+

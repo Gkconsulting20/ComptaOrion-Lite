@@ -160,6 +160,167 @@ export const AnalyzeClientPaymentsResponse = zod.object({
 })
 
 
+export const ListSuppliersResponse = zod.object({
+  "success": zod.boolean(),
+  "count": zod.number().int(),
+  "data": zod.array(zod.object({
+  "id": zod.number().int(),
+  "raisonSociale": zod.string(),
+  "numeroFournisseur": zod.string().nullable(),
+  "contactPrincipal": zod.string().nullish(),
+  "telephone": zod.string().nullable(),
+  "email": zod.string().nullable(),
+  "adresse": zod.string().nullish(),
+  "soldeDu": zod.number(),
+  "actif": zod.boolean()
+}))
+})
+
+
+export const createSupplierBodyRaisonSocialeMax = 255;
+
+export const createSupplierBodyNumeroFournisseurMax = 50;
+
+export const createSupplierBodyContactPrincipalMax = 255;
+
+export const createSupplierBodyTelephoneMax = 50;
+
+export const createSupplierBodyEmailMax = 255;
+
+
+
+export const CreateSupplierBody = zod.object({
+  "raisonSociale": zod.string().min(1).max(createSupplierBodyRaisonSocialeMax),
+  "numeroFournisseur": zod.string().max(createSupplierBodyNumeroFournisseurMax).optional(),
+  "contactPrincipal": zod.string().max(createSupplierBodyContactPrincipalMax).optional(),
+  "telephone": zod.string().max(createSupplierBodyTelephoneMax).optional(),
+  "email": zod.string().max(createSupplierBodyEmailMax).optional(),
+  "adresse": zod.string().optional()
+})
+
+export const CreateSupplierResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.object({
+  "id": zod.number().int(),
+  "raisonSociale": zod.string(),
+  "numeroFournisseur": zod.string().nullable(),
+  "contactPrincipal": zod.string().nullish(),
+  "telephone": zod.string().nullable(),
+  "email": zod.string().nullable(),
+  "adresse": zod.string().nullish(),
+  "soldeDu": zod.number(),
+  "actif": zod.boolean()
+})
+})
+
+
+export const ListPurchasesResponse = zod.object({
+  "success": zod.boolean(),
+  "count": zod.number().int(),
+  "data": zod.array(zod.object({
+  "id": zod.number().int(),
+  "numeroFacture": zod.string(),
+  "numeroFactureFournisseur": zod.string().nullable(),
+  "dateFacture": zod.coerce.date(),
+  "statut": zod.string(),
+  "totalHT": zod.number(),
+  "totalTVA": zod.number(),
+  "totalTTC": zod.number(),
+  "montantPaye": zod.number(),
+  "soldeRestant": zod.number(),
+  "fournisseur": zod.object({
+  "id": zod.number().int(),
+  "raisonSociale": zod.string(),
+  "numeroFournisseur": zod.string().nullable(),
+  "contactPrincipal": zod.string().nullish(),
+  "telephone": zod.string().nullable(),
+  "email": zod.string().nullable(),
+  "adresse": zod.string().nullish(),
+  "soldeDu": zod.number(),
+  "actif": zod.boolean()
+}),
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "produitId": zod.number().int(),
+  "description": zod.string(),
+  "quantite": zod.number(),
+  "prixUnitaire": zod.number(),
+  "totalLigne": zod.number()
+}))
+}))
+})
+
+
+export const createLitePurchaseHeaderXIdempotencyKeyMin = 8;
+export const createLitePurchaseHeaderXIdempotencyKeyMax = 128;
+
+
+
+export const CreateLitePurchaseHeader = zod.object({
+  "X-Idempotency-Key": zod.string().min(createLitePurchaseHeaderXIdempotencyKeyMin).max(createLitePurchaseHeaderXIdempotencyKeyMax)
+})
+
+
+export const createLitePurchaseBodyNumeroFactureFournisseurMax = 100;
+
+
+export const createLitePurchaseBodyItemsItemQuantiteExclusiveMin = 0;
+
+export const createLitePurchaseBodyItemsItemPrixUnitaireMin = 0;
+
+export const createLitePurchaseBodyItemsMax = 50;
+
+
+
+export const CreateLitePurchaseBody = zod.object({
+  "fournisseurId": zod.number().int().min(1),
+  "numeroFactureFournisseur": zod.string().max(createLitePurchaseBodyNumeroFactureFournisseurMax).optional(),
+  "dateFacture": zod.coerce.date(),
+  "dateEcheance": zod.coerce.date().nullish(),
+  "notes": zod.string().optional(),
+  "items": zod.array(zod.object({
+  "produitId": zod.number().int().min(1),
+  "quantite": zod.number().gt(createLitePurchaseBodyItemsItemQuantiteExclusiveMin),
+  "prixUnitaire": zod.number().min(createLitePurchaseBodyItemsItemPrixUnitaireMin)
+})).min(1).max(createLitePurchaseBodyItemsMax)
+})
+
+export const CreateLitePurchaseResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.object({
+  "id": zod.number().int(),
+  "numeroFacture": zod.string(),
+  "numeroFactureFournisseur": zod.string().nullable(),
+  "dateFacture": zod.coerce.date(),
+  "statut": zod.string(),
+  "totalHT": zod.number(),
+  "totalTVA": zod.number(),
+  "totalTTC": zod.number(),
+  "montantPaye": zod.number(),
+  "soldeRestant": zod.number(),
+  "fournisseur": zod.object({
+  "id": zod.number().int(),
+  "raisonSociale": zod.string(),
+  "numeroFournisseur": zod.string().nullable(),
+  "contactPrincipal": zod.string().nullish(),
+  "telephone": zod.string().nullable(),
+  "email": zod.string().nullable(),
+  "adresse": zod.string().nullish(),
+  "soldeDu": zod.number(),
+  "actif": zod.boolean()
+}),
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "produitId": zod.number().int(),
+  "description": zod.string(),
+  "quantite": zod.number(),
+  "prixUnitaire": zod.number(),
+  "totalLigne": zod.number()
+}))
+})
+})
+
+
 /**
  * Returns server health status
  * @summary Health check
@@ -167,3 +328,5 @@ export const AnalyzeClientPaymentsResponse = zod.object({
 export const HealthCheckResponse = zod.object({
   "status": zod.string()
 })
+
+

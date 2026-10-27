@@ -3,7 +3,7 @@ import { db } from '../db.js';
 import { factures, factureItems, paiements, clients, produits, transactionsTresorerie, comptesBancaires, ecritures, lignesEcritures, journaux, comptesComptables, mouvementsStock, entreprises, liteIdempotency } from '../schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import emailService from '../services/emailService.js';
-import { createEcritureFactureVente, createEcriturePaiementClient } from '../services/comptabiliteService.js';
+import { createEcritureComptable, createEcritureFactureVente, createEcriturePaiementClient, getCompteByNumero } from '../services/comptabiliteService.js';
 import { claimIdempotentOperation } from '../middleware/idempotency.js';
 
 const router = express.Router();
@@ -238,8 +238,37 @@ router.post('/lite-sale', async (req, res) => {
         totalHT,
         totalTVA,
         totalTTC,
+        valide: true,
         executor: tx,
       });
+      const totalCost = Math.round((productRows.reduce((sum, product) => {
+        const unitCost = Number(product.coutMoyen || 0) || Number(product.prixAchat || 0);
+        return sum + (requested.get(product.id) || 0) * unitCost;
+      }, 0) + Number.EPSILON) * 100) / 100;
+      if (totalCost > 0) {
+        const stockAccount = await getCompteByNumero(req.entrepriseId, '31', tx);
+        const costAccount = await getCompteByNumero(req.entrepriseId, '601', tx);
+        if (!stockAccount || !costAccount) {
+          throw Object.assign(new Error('Les comptes de stock ou de coût des marchandises ne sont pas configurés'), { status: 409 });
+        }
+        await createEcritureComptable({
+          entrepriseId: req.entrepriseId,
+          journalCode: 'VT',
+          journalNom: 'Journal des Ventes',
+          journalType: 'ventes',
+          dateEcriture: dateFacture || new Date().toISOString().slice(0, 10),
+          libelle: `Sortie de stock - ${numeroFacture}`,
+          numeroPiece: numeroFacture,
+          lignes: [
+            { compteComptableId: costAccount.id, debit: totalCost, credit: 0, libelle: `Coût des marchandises vendues - ${numeroFacture}` },
+            { compteComptableId: stockAccount.id, debit: 0, credit: totalCost, libelle: `Stock vendu - ${numeroFacture}` },
+          ],
+          valide: true,
+          sourceType: 'facture_vente_stock',
+          sourceId: invoice.id,
+          executor: tx,
+        });
+      }
       if (payment) {
         await createEcriturePaiementClient({
           entrepriseId: req.entrepriseId,

@@ -298,6 +298,7 @@ export async function createEcritureFactureVente(params) {
     totalHT,
     totalTVA = 0,
     totalTTC,
+    valide = false,
     executor = db
   } = params;
 
@@ -348,7 +349,7 @@ export async function createEcritureFactureVente(params) {
     libelle: `Facture ${numeroFacture} - ${clientNom}`,
     numeroPiece: numeroFacture,
     lignes: ecrituresLignes,
-    valide: false,
+    valide,
     executor
   });
 }

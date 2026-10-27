@@ -124,6 +124,73 @@ paths:
                   data: { $ref: "#/components/schemas/PaymentScore" }
         "400": { $ref: "#/components/responses/AiFailure" }
         "404": { $ref: "#/components/responses/AiFailure" }
+  /fournisseurs:
+    get:
+      operationId: listSuppliers
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Suppliers for the authenticated company
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuppliersResponse"
+    post:
+      operationId: createSupplier
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierInput"
+      responses:
+        "201":
+          description: Supplier created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierResponse"
+        "400": { $ref: "#/components/responses/AiFailure" }
+  /achats:
+    get:
+      operationId: listPurchases
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Supplier invoices and inventory items for the authenticated company
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchasesResponse"
+  /achats/lite-create:
+    post:
+      operationId: createLitePurchase
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: header
+          name: X-Idempotency-Key
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LitePurchaseInput"
+      responses:
+        "201":
+          description: Purchase recorded with accounting and stock movements
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseResponse"
+        "400": { $ref: "#/components/responses/AiFailure" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+        "409": { $ref: "#/components/responses/AiFailure" }
   /healthz:
     get:
       operationId: healthCheck
@@ -234,4 +301,102 @@ components:
           type: string
       required:
         - status
+    Supplier:
+      type: object
+      required: [id, raisonSociale, numeroFournisseur, telephone, email, soldeDu, actif]
+      properties:
+        id: { type: integer }
+        raisonSociale: { type: string }
+        numeroFournisseur: { type: ["string", "null"] }
+        contactPrincipal: { type: ["string", "null"] }
+        telephone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        adresse: { type: ["string", "null"] }
+        soldeDu: { type: number }
+        actif: { type: boolean }
+    SupplierInput:
+      type: object
+      required: [raisonSociale]
+      properties:
+        raisonSociale: { type: string, minLength: 1, maxLength: 255 }
+        numeroFournisseur: { type: string, maxLength: 50 }
+        contactPrincipal: { type: string, maxLength: 255 }
+        telephone: { type: string, maxLength: 50 }
+        email: { type: string, maxLength: 255 }
+        adresse: { type: string }
+    SuppliersResponse:
+      type: object
+      required: [success, count, data]
+      properties:
+        success: { type: boolean }
+        count: { type: integer }
+        data: { type: array, items: { $ref: "#/components/schemas/Supplier" } }
+    SupplierResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean }
+        data: { $ref: "#/components/schemas/Supplier" }
+    LitePurchaseItemInput:
+      type: object
+      required: [produitId, quantite, prixUnitaire]
+      properties:
+        produitId: { type: integer, minimum: 1 }
+        quantite: { type: number, exclusiveMinimum: 0 }
+        prixUnitaire: { type: number, minimum: 0 }
+    LitePurchaseInput:
+      type: object
+      required: [fournisseurId, dateFacture, items]
+      properties:
+        fournisseurId: { type: integer, minimum: 1 }
+        numeroFactureFournisseur: { type: string, maxLength: 100 }
+        dateFacture: { type: string, format: date }
+        dateEcheance: { type: ["string", "null"], format: date }
+        notes: { type: string }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { $ref: "#/components/schemas/LitePurchaseItemInput" }
+    PurchaseItem:
+      type: object
+      required: [id, produitId, description, quantite, prixUnitaire, totalLigne]
+      properties:
+        id: { type: integer }
+        produitId: { type: integer }
+        description: { type: string }
+        quantite: { type: number }
+        prixUnitaire: { type: number }
+        totalLigne: { type: number }
+    PurchaseInvoice:
+      type: object
+      required: [id, numeroFacture, numeroFactureFournisseur, dateFacture, statut, totalHT, totalTVA, totalTTC, montantPaye, soldeRestant, fournisseur, items]
+      properties:
+        id: { type: integer }
+        numeroFacture: { type: string }
+        numeroFactureFournisseur: { type: ["string", "null"] }
+        dateFacture: { type: string, format: date }
+        statut: { type: string }
+        totalHT: { type: number }
+        totalTVA: { type: number }
+        totalTTC: { type: number }
+        montantPaye: { type: number }
+        soldeRestant: { type: number }
+        fournisseur: { $ref: "#/components/schemas/Supplier" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PurchaseItem" }
+    PurchasesResponse:
+      type: object
+      required: [success, count, data]
+      properties:
+        success: { type: boolean }
+        count: { type: integer }
+        data: { type: array, items: { $ref: "#/components/schemas/PurchaseInvoice" } }
+    PurchaseResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean }
+        data: { $ref: "#/components/schemas/PurchaseInvoice" }
 
