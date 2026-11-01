@@ -5,8 +5,6 @@ export default defineConfig({
   preview: {
     realtime: true,
   },
-  auth: true,
-  aiGateway: true,
   functions: {
     hello: { name: "Hello World", source: "./hello.ts" },
   },
