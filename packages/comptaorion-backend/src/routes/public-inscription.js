@@ -584,8 +584,8 @@ router.post('/webhook/fedapay', async (req, res) => {
       }).returning();
 
       // Calculer la commission si parrainage
-      const commissionAmount = commercialData 
-        ? parseFloat(inscriptionEnAttente.montantTotal) * parseFloat(commercialData.commission || 10) / 100
+      const commissionAmount = commercialData
+        ? parseFloat(inscriptionEnAttente.montantTotal) * 0.10
         : 0;
 
       // Créer la vente

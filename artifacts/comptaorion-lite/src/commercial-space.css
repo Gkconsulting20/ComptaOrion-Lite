@@ -145,6 +145,18 @@
 .cs-mobile-nav { display: none; }
 .cs-mobile-brand { display: none; }
 .cs-inline-empty { color: var(--cs-muted); font-size: 11px; }
+.cs-plan-cell { min-width: 210px; }
+.cs-plan-features { display: grid; gap: 4px; margin: 7px 0 0; padding: 0; list-style: none; }
+.cs-plan-features li { position: relative; padding-left: 12px; color: #71807a; font-size: 10px; line-height: 1.35; white-space: normal; }
+.cs-plan-features li::before { position: absolute; top: 5px; left: 1px; width: 4px; height: 4px; border-radius: 50%; background: var(--cs-coral); content: ''; }
+.cs-plan-no-features { display: block; margin-top: 5px; color: var(--cs-muted); white-space: normal; }
+.cs-report-view { display: grid; gap: 0; }
+.cs-report-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 9px; margin-bottom: 10px; border: 1px solid var(--cs-line); border-radius: 11px; padding: 13px; background: var(--cs-card); }
+.cs-report-controls .cs-field { min-width: 155px; }
+.cs-report-controls .cs-field input { min-height: 39px; }
+.cs-report-caption { margin: 0 2px 13px; color: var(--cs-muted); font-size: 10px; }
+.cs-report-stats { margin-bottom: 15px; }
+.cs-report-view > .cs-panel { margin-top: 0; }
 @media (max-width: 960px) {
   .cs-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .cs-dashboard-grid { grid-template-columns: 1fr; }
@@ -166,6 +178,8 @@
   .cs-mobile-nav button[aria-current="page"] { color: var(--cs-paper); background: #2b3d3d; box-shadow: inset 0 2px var(--cs-coral); }
   .cs-mobile-nav i { font-style: normal; font-size: 16px; }
   .cs-form-grid { grid-template-columns: 1fr; }
+  .cs-report-controls .cs-field { min-width: calc(50% - 5px); flex: 1; }
+  .cs-report-controls > .cs-button { flex: 1 1 40%; }
 }
 @media (max-width: 480px) {
   .cs-page-head { display: grid; grid-template-columns: 1fr; }
@@ -182,4 +196,12 @@
   .cs-ready { padding: 16px; }
   .cs-toast { right: 12px; bottom: 77px; left: 12px; max-width: none; text-align: center; }
   .cs-modal { padding: 18px; }
+  .cs-report-controls { align-items: stretch; }
+  .cs-report-controls .cs-field { min-width: calc(50% - 5px); }
+}
+@media print {
+  .cs-sidebar, .cs-topbar, .cs-mobile-nav, .cs-page-head .cs-head-actions, .cs-report-controls { display: none !important; }
+  .cs-main { width: 100%; margin: 0; }
+  .cs-content { max-width: none; padding: 0; }
+  .commercial { background: #fff; }
 }

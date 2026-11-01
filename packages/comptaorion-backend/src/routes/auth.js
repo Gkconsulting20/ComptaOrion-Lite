@@ -1,7 +1,7 @@
 import express from 'express';
 import { db } from '../db.js';
-import { users, entreprises, saasClients } from '../schema.js';
-import { eq } from 'drizzle-orm';
+import { users, entreprises, saasClients, saasCommerciaux } from '../schema.js';
+import { and, eq } from 'drizzle-orm';
 import {
   generateToken,
   generateRefreshToken,
@@ -30,6 +30,7 @@ router.post('/register', async (req, res) => {
       entrepriseAdresse,
       entrepriseTelephone,
       entrepriseEmail,
+      commercialId: referralCommercialId,
     } = req.body;
 
     // Validation
@@ -45,6 +46,19 @@ router.post('/register', async (req, res) => {
 
     if (existingUser) {
       return res.status(400).json({ error: 'Cet email est déjà utilisé' });
+    }
+
+    let referralCommercial = null;
+    if (referralCommercialId !== undefined && referralCommercialId !== null && referralCommercialId !== '') {
+      const parsedCommercialId = Number(referralCommercialId);
+      if (!Number.isSafeInteger(parsedCommercialId) || parsedCommercialId < 1) {
+        return res.status(400).json({ error: 'Lien de commercial invalide.' });
+      }
+      [referralCommercial] = await db.select({ id: saasCommerciaux.id })
+        .from(saasCommerciaux)
+        .where(and(eq(saasCommerciaux.id, parsedCommercialId), eq(saasCommerciaux.actif, true)))
+        .limit(1);
+      if (!referralCommercial) return res.status(400).json({ error: 'Ce lien commercial n’est plus disponible.' });
     }
 
     // Créer d'abord l'entreprise
@@ -80,8 +94,10 @@ router.post('/register', async (req, res) => {
     try {
       await db.insert(saasClients).values({
         entrepriseId: newEntreprise.id,
+        commercialId: referralCommercial?.id || null,
         statut: 'trial',
-        source: 'web',
+        source: referralCommercial ? 'commercial' : 'web',
+        notes: referralCommercial ? `Inscription via le lien du commercial #${referralCommercial.id}` : null,
       }).onConflictDoNothing();
     } catch (saasError) {
       console.error('Impossible d’enregistrer le nouvel essai SaaS:', saasError.message);

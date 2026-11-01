@@ -91,7 +91,7 @@ router.get('/commerciaux', async (req, res) => {
 
 router.post('/commerciaux', async (req, res) => {
   try {
-    const { nom, prenom, email, telephone, region, commission, objectifMensuel, password } = req.body;
+    const { nom, prenom, email, telephone, region, objectifMensuel, password } = req.body;
 
     if (!password) {
       return res.status(400).json({ error: 'Le mot de passe est obligatoire pour créer un commercial' });
@@ -106,7 +106,7 @@ router.post('/commerciaux', async (req, res) => {
       telephone,
       passwordHash,
       region,
-      commission: commission || 10,
+      commission: 10,
       objectifMensuel,
       actif: true
     }).returning();
@@ -121,6 +121,7 @@ router.put('/commerciaux/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { password, ...updates } = req.body;
+    updates.commission = 10;
 
     if (password) {
       updates.passwordHash = await bcrypt.hash(password, 10);
@@ -356,7 +357,7 @@ router.post('/abonnements', async (req, res) => {
       .where(eq(saasCommerciaux.id, clientSaas.commercialId))
       .limit(1);
 
-    const tauxCommission = commercial ? parseFloat(commercial.commission) / 100 : 0.10;
+    const tauxCommission = commercial ? 0.10 : 0;
     const montantVente = parseFloat(plan.prix) * (dureeEnMois || 1);
     const commission = montantVente * tauxCommission;
 
@@ -440,7 +441,7 @@ router.post('/ventes', async (req, res) => {
       clientId: parseInt(clientId),
       abonnementId: abonnementId ? parseInt(abonnementId) : null,
       montantVente,
-      commission: commission || (montantVente * 0.10), // 10% par défaut
+      commission: commercialId ? (Number(montantVente) * 0.10) : 0,
       statut: 'confirmée',
       notes
     }).returning();

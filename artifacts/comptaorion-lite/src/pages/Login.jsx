@@ -12,6 +12,7 @@ const initialRegister = {
   entrepriseEmail: '',
   entrepriseTelephone: '',
   entrepriseAdresse: '',
+  commercialId: new URLSearchParams(window.location.search).get('ref') || '',
 };
 
 export function Login({ onLoginSuccess }) {

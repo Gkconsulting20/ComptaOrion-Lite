@@ -6,6 +6,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 // The imported JavaScript UI is bundled by Vite and remains the source of truth.
 // @ts-expect-error Legacy JSX source has no standalone TypeScript declaration.
 import LiteApp from '@/LiteApp.jsx';
+// @ts-expect-error Legacy JSX source has no standalone TypeScript declaration.
+import CommercialPortal from '@/CommercialPortal.jsx';
 import NotFound from '@/pages/not-found';
 import {
   Route,
@@ -24,6 +26,7 @@ function Router() {
       <Switch>
         <Route path="/" component={LiteApp} />
         <Route path="/lite" component={LiteApp} />
+        <Route path="/commercial" component={CommercialPortal} />
         <Route component={NotFound} />
       </Switch>
     </RoutedErrorBoundary>

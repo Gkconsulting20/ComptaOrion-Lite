@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from './api.js';
 import './commercial-space.css';
 
@@ -9,6 +9,7 @@ const NAV = [
   { id: 'subscriptions', label: 'Abonnements', icon: '↻' },
   { id: 'sales', label: 'Ventes', icon: '↗' },
   { id: 'reps', label: 'Commerciaux', icon: '◌' },
+  { id: 'reports', label: 'Rapports', icon: '▥' },
 ];
 
 const blankData = {
@@ -116,11 +117,21 @@ export default function CommercialSpace({ onBack = () => {} }) {
   const [planToEdit, setPlanToEdit] = useState(null);
   const [createPlanOpen, setCreatePlanOpen] = useState(false);
   const [proposalsBusy, setProposalsBusy] = useState(false);
+  const [createRepOpen, setCreateRepOpen] = useState(false);
+  const [reports, setReports] = useState(null);
+  const [reportFrom, setReportFrom] = useState(() => `${new Date().toISOString().slice(0, 8)}01`);
+  const [reportTo, setReportTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reportBusy, setReportBusy] = useState(false);
+  const proposalsEnsured = useRef(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setLoadError('');
     try {
+      if (!proposalsEnsured.current) {
+        await api.post('/saas-admin/plans/proposals', {});
+        proposalsEnsured.current = true;
+      }
       const [dashboard, clients, plans, subscriptions, sales, reps, readiness] = await Promise.all([
         api.get('/saas-admin/dashboard'),
         api.get('/saas-admin/clients'),
@@ -147,6 +158,20 @@ export default function CommercialSpace({ onBack = () => {} }) {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+  const refreshReports = useCallback(async () => {
+    setReportBusy(true);
+    setLoadError('');
+    try {
+      setReports(unwrap(await api.get('/saas-admin/reports', { from: reportFrom, to: reportTo })));
+    } catch (error) {
+      setLoadError(getErrorMessage(error));
+    } finally {
+      setReportBusy(false);
+    }
+  }, [reportFrom, reportTo]);
+  useEffect(() => {
+    if (page === 'reports') refreshReports();
+  }, [page, refreshReports]);
   useEffect(() => {
     if (!toast) return undefined;
     const timer = window.setTimeout(() => setToast(null), 3600);
@@ -185,7 +210,7 @@ export default function CommercialSpace({ onBack = () => {} }) {
     try {
       const response = unwrap(await api.post('/saas-admin/plans/proposals', {}));
       await refresh();
-      setToast({ type: 'success', message: `${Number(response?.created || 0)} brouillon(s) préparé(s). Aucun forfait n’a été activé.` });
+      setToast({ type: 'success', message: `${Number(response?.created || 0)} créé(s), ${Number(response?.updated || 0)} description(s) mise(s) à jour. Aucun forfait n’a été activé.` });
     } catch (error) {
       setToast({ type: 'error', message: getErrorMessage(error) });
     } finally {
@@ -215,11 +240,12 @@ export default function CommercialSpace({ onBack = () => {} }) {
     subscriptions: ['Revenus récurrents', 'Abonnements', 'Consultez les engagements, échéances et montants mensuels actuellement enregistrés.'],
     sales: ['Activité commerciale', 'Ventes', 'Suivez les ventes SaaS, leurs commissions, leur source et leur état de confirmation.'],
     reps: ['Équipe terrain', 'Commerciaux', 'Gardez une vue claire sur les régions, objectifs et taux de commission.'],
+    reports: ['Synthèse commerciale', 'Rapports', 'Analysez les résultats de l’équipe sur une période donnée et exportez les données utiles.'],
   }[page];
 
   const actionForPage = page === 'plans'
     ? <div className="cs-head-actions"><button className="cs-button cs-button-outline" data-testid="button-create-proposals" disabled={proposalsBusy || busy} onClick={createProposals}>{proposalsBusy ? 'Préparation…' : 'Préparer les 3 brouillons'}</button><button className="cs-button cs-button-primary" data-testid="button-new-plan" onClick={() => setCreatePlanOpen(true)}>+ Nouveau brouillon</button></div>
-    : null;
+    : page === 'reps' ? <button className="cs-button cs-button-primary" data-testid="button-new-rep" onClick={() => setCreateRepOpen(true)}>+ Ajouter un commercial</button> : null;
 
   return <div className="commercial" data-testid="commercial-space">
     <div className="cs-frame">
@@ -243,16 +269,17 @@ export default function CommercialSpace({ onBack = () => {} }) {
             {actionForPage}
           </header>
 
-          {loading ? <LoadingState /> : loadError ? <ErrorState message={loadError} retry={refresh} /> : <>
+          {(loading && page !== 'reports') || (reportBusy && page === 'reports') ? <LoadingState /> : loadError ? <ErrorState message={loadError} retry={page === 'reports' ? refreshReports : refresh} /> : <>
             {page === 'overview' && <Overview data={data} onNavigate={navigate} />}
-            {page !== 'overview' && <section aria-label={`Liste ${heading[1]}`}>
+            {page === 'reports' && <OwnerReports reports={reports} from={reportFrom} to={reportTo} setFrom={setReportFrom} setTo={setReportTo} refresh={refreshReports} />}
+            {page !== 'overview' && page !== 'reports' && <section aria-label={`Liste ${heading[1]}`}>
               <div className="cs-toolbar">
                 <label className="cs-search"><span aria-hidden="true">⌕</span><input data-testid={`input-search-${page}`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Rechercher ${heading[1].toLocaleLowerCase('fr')}…`} aria-label={`Rechercher dans ${heading[1].toLocaleLowerCase('fr')}`} /></label>
                 <span className="cs-inline-empty" data-testid={`text-count-${page}`}>{filtered.length} résultat{filtered.length > 1 ? 's' : ''}</span>
               </div>
               {filtered.length === 0 ? <EmptyState title={search ? 'Aucun résultat trouvé.' : emptyTitle(page)} detail={search ? 'Essayez un autre terme de recherche.' : emptyDetail(page)} /> :
                 <section className="cs-panel"><TableForPage page={page} rows={filtered} onEditClient={setClientToEdit} onEditPlan={setPlanToEdit} /></section>}
-              {page === 'plans' && <p className="cs-inline-note" style={{ marginTop: 12 }}>Les nouveaux forfaits et les trois propositions sont enregistrés comme brouillons inactifs. Aucun paiement ni accès payant n’est activé ici.</p>}
+              {page === 'plans' && <p className="cs-inline-note" style={{ marginTop: 12 }}>Les trois forfaits proposés sont préparés automatiquement comme brouillons. Les tarifs affichés restent à valider et le paiement XOF n’est pas activé. Les limites d’utilisateurs et de stockage ne sont pas encore appliquées par le logiciel.</p>}
             </section>}
           </>}
         </div>
@@ -264,6 +291,10 @@ export default function CommercialSpace({ onBack = () => {} }) {
     {clientToEdit && <ClientEditor client={clientToEdit} busy={busy} onClose={() => setClientToEdit(null)} onSave={(changes) => saveClient(clientToEdit, changes)} />}
     {planToEdit && <PlanEditor plan={planToEdit} busy={busy} onClose={() => setPlanToEdit(null)} onSave={(changes) => savePlan(planToEdit, changes)} />}
     {createPlanOpen && <PlanEditor busy={busy} create onClose={() => setCreatePlanOpen(false)} onSave={createPlan} />}
+    {createRepOpen && <RepEditor busy={busy} onClose={() => setCreateRepOpen(false)} onSave={async (body) => {
+      const success = await performMutation(() => api.post('/saas-admin/commerciaux', body), 'Le compte commercial a été créé.');
+      if (success) setCreateRepOpen(false);
+    }} />}
     {toast && <div className={`cs-toast ${toast.type === 'error' ? 'cs-toast-error' : ''}`} role={toast.type === 'error' ? 'alert' : 'status'} data-testid="status-toast">{toast.message}</div>}
   </div>;
 }
@@ -277,7 +308,7 @@ function emptyDetail(page) {
     plans: 'Vous pouvez préparer les brouillons proposés ou créer un brouillon personnalisé.',
     subscriptions: 'Les abonnements apparaîtront ici lorsque des engagements seront enregistrés.',
     sales: 'Les ventes confirmées et en attente apparaîtront ici.',
-    reps: 'Les membres de l’équipe commerciale apparaîtront ici lorsqu’ils seront ajoutés.',
+    reps: 'Ajoutez un compte personnel pour permettre à un commercial de consulter son portefeuille et ses commissions.',
   }[page] || 'Les données disponibles apparaîtront ici.';
 }
 
@@ -319,10 +350,77 @@ function Stat({ label, value, detail, tone, testId }) {
 
 function TableForPage({ page, rows, onEditClient, onEditPlan }) {
   if (page === 'clients') return <div className="cs-table-wrap"><table className="cs-table" data-testid="table-clients"><thead><tr><th>Entreprise</th><th>Contact</th><th>État</th><th>Inscription</th><th>Responsable</th><th /></tr></thead><tbody>{rows.map((row) => <tr key={row.id} data-testid={`row-client-${row.id}`}><td><strong>{row.entrepriseNom || 'Entreprise sans nom'}</strong><small>{row.pays || 'Pays non renseigné'} · {row.source || 'Source inconnue'}</small></td><td><strong>{row.email || '—'}</strong><small>{row.telephone || 'Téléphone non renseigné'}</small></td><td><StatusBadge value={row.statut} testId={`status-client-${row.id}`} /></td><td>{formatDate(row.dateInscription)}<small>Dernière connexion : {formatDate(row.dateDerniereConnexion)}</small></td><td>{row.commercial || '—'}</td><td><button className="cs-button cs-button-outline cs-button-small" data-testid={`button-edit-client-${row.id}`} onClick={() => onEditClient(row)}>Gérer</button></td></tr>)}</tbody></table></div>;
-  if (page === 'plans') return <div className="cs-table-wrap"><table className="cs-table" data-testid="table-plans"><thead><tr><th>Forfait</th><th>Tarif</th><th>Utilisateurs</th><th>Période</th><th>État</th><th /></tr></thead><tbody>{rows.map((row) => <tr key={row.id} data-testid={`row-plan-${row.id}`}><td><strong>{row.nom}</strong><small>{row.descriptionFeatures || 'Aucune description de fonctionnalités.'}</small></td><td className="cs-number">{formatMoney(row.prix, row.devise || 'XOF')}</td><td>{row.limiteUtilisateurs ?? '—'}</td><td>{row.periode || '—'}</td><td><StatusBadge value={row.actif ? 'actif' : 'inactif'} testId={`status-plan-${row.id}`} /></td><td><button className="cs-button cs-button-outline cs-button-small" data-testid={`button-edit-plan-${row.id}`} onClick={() => onEditPlan(row)}>Modifier</button></td></tr>)}</tbody></table></div>;
+  if (page === 'plans') return <div className="cs-table-wrap"><table className="cs-table" data-testid="table-plans"><thead><tr><th>Forfait</th><th>Tarif</th><th>Utilisateurs</th><th>Période</th><th>État</th><th /></tr></thead><tbody>{rows.map((row) => <tr key={row.id} data-testid={`row-plan-${row.id}`}><td className="cs-plan-cell"><strong>{row.nom}</strong><PlanFeatureList value={row.descriptionFeatures} testId={`list-plan-features-${row.id}`} /></td><td className="cs-number">{formatMoney(row.prix, row.devise || 'XOF')}</td><td>{row.limiteUtilisateurs ?? '—'}</td><td>{row.periode || '—'}</td><td><StatusBadge value={row.actif ? 'actif' : 'inactif'} testId={`status-plan-${row.id}`} /></td><td><button className="cs-button cs-button-outline cs-button-small" data-testid={`button-edit-plan-${row.id}`} onClick={() => onEditPlan(row)}>Modifier</button></td></tr>)}</tbody></table></div>;
   if (page === 'subscriptions') return <div className="cs-table-wrap"><table className="cs-table" data-testid="table-subscriptions"><thead><tr><th>Entreprise</th><th>Forfait</th><th>Montant mensuel</th><th>Période</th><th>État</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} data-testid={`row-subscription-${row.id}`}><td><strong>{row.entreprise || 'Entreprise sans nom'}</strong><small>Compte #{row.entrepriseId ?? '—'}</small></td><td>{row.plan || '—'}</td><td className="cs-number">{formatMoney(row.montantMensuel, row.devise || 'XOF')}</td><td>{formatDate(row.dateDebut)}<small>Échéance : {formatDate(row.dateExpiration)}</small></td><td><StatusBadge value={row.statut} testId={`status-subscription-${row.id}`} /></td></tr>)}</tbody></table></div>;
   if (page === 'sales') return <div className="cs-table-wrap"><table className="cs-table" data-testid="table-sales"><thead><tr><th>Client</th><th>Commercial</th><th>Montant</th><th>Commission</th><th>Date</th><th>Source / état</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} data-testid={`row-sale-${row.id}`}><td><strong>{row.client || 'Entreprise sans nom'}</strong></td><td>{row.commercial || 'Vente en ligne'}</td><td className="cs-number">{formatMoney(row.montantVente)}</td><td>{formatMoney(row.commission)}</td><td>{formatDate(row.dateVente)}</td><td>{row.source || '—'}<small><StatusBadge value={row.statut} testId={`status-sale-${row.id}`} /></small></td></tr>)}</tbody></table></div>;
   return <div className="cs-table-wrap"><table className="cs-table" data-testid="table-reps"><thead><tr><th>Commercial</th><th>Coordonnées</th><th>Région</th><th>Commission</th><th>Objectif mensuel</th><th>État</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} data-testid={`row-rep-${row.id}`}><td><strong>{[row.prenom, row.nom].filter(Boolean).join(' ') || 'Sans nom'}</strong><small>Depuis le {formatDate(row.createdAt)}</small></td><td>{row.email || '—'}<small>{row.telephone || 'Téléphone non renseigné'}</small></td><td>{row.region || '—'}</td><td>{row.commission ?? '—'}{row.commission !== undefined && row.commission !== null ? '%' : ''}</td><td className="cs-number">{formatMoney(row.objectifMensuel)}</td><td><StatusBadge value={row.actif ? 'actif' : 'inactif'} testId={`status-rep-${row.id}`} /></td></tr>)}</tbody></table></div>;
+}
+
+function PlanFeatureList({ value, testId }) {
+  const features = String(value || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return features.length
+    ? <ul className="cs-plan-features" data-testid={testId}>{features.map((feature, index) => <li key={`${index}-${feature}`}>{feature}</li>)}</ul>
+    : <small className="cs-plan-no-features" data-testid={testId}>Aucune fonctionnalité renseignée.</small>;
+}
+
+function OwnerReports({ reports, from, to, setFrom, setTo, refresh }) {
+  const totals = reports?.totals || {};
+  const team = Array.isArray(reports?.commerciaux) ? reports.commerciaux : [];
+  const exportCsv = () => {
+    const lines = [
+      ['Commercial', 'Région', 'Clients', 'Ventes', 'CA (XOF)', 'Commissions (XOF)'],
+      ...team.map((rep) => [[rep.prenom, rep.nom].filter(Boolean).join(' '), rep.region || '', rep.clients ?? '', rep.ventes ?? '', rep.ca ?? '', rep.commissions ?? '']),
+    ];
+    const csv = lines.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(';')).join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }));
+    link.download = `rapport-commercial-${from}-${to}.csv`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  };
+  return <section className="cs-report-view" data-testid="owner-reports">
+    <div className="cs-report-controls">
+      <label className="cs-field">Du<input type="date" data-testid="input-report-from" value={from} max={to} onChange={(event) => setFrom(event.target.value)} /></label>
+      <label className="cs-field">Au<input type="date" data-testid="input-report-to" value={to} min={from} onChange={(event) => setTo(event.target.value)} /></label>
+      <button className="cs-button cs-button-outline" data-testid="button-refresh-report" onClick={refresh}>Actualiser</button>
+      <button className="cs-button cs-button-primary" data-testid="button-export-report" disabled={!reports} onClick={exportCsv}>Exporter CSV</button>
+      <button className="cs-button cs-button-outline" data-testid="button-print-report" onClick={() => window.print()}>Imprimer</button>
+    </div>
+    <p className="cs-report-caption" data-testid="text-report-period">Période du {formatDate(reports?.period?.from || from)} au {formatDate(reports?.period?.to || to)}</p>
+    <section className="cs-stats cs-report-stats" aria-label="Totaux de la période">
+      <Stat label="Clients apportés" value={totals.clients ?? '—'} detail="Sur la période sélectionnée" tone="warm" testId="metric-report-clients" />
+      <Stat label="Ventes enregistrées" value={totals.ventes ?? '—'} detail="Toutes les ventes de l’équipe" tone="mint" testId="metric-report-sales" />
+      <Stat label="Chiffre d’affaires" value={formatMoney(totals.ca)} detail="XOF · période sélectionnée" tone="ink" testId="metric-report-revenue" />
+      <Stat label="Commissions" value={formatMoney(totals.commissions)} detail="Ventes confirmées · taux fixe de 10 %" tone="sand" testId="metric-report-commissions" />
+    </section>
+    <section className="cs-panel"><div className="cs-panel-head"><div><h2>Résultats par commercial</h2><p>Vue agrégée de l’équipe sur cette période.</p></div></div>
+      {team.length ? <div className="cs-table-wrap"><table className="cs-table" data-testid="table-owner-report"><thead><tr><th>Commercial</th><th>Région</th><th>Clients</th><th>Ventes</th><th>Chiffre d’affaires</th><th>Commissions</th></tr></thead><tbody>{team.map((rep) => <tr key={rep.id} data-testid={`row-owner-report-${rep.id}`}><td><strong>{[rep.prenom, rep.nom].filter(Boolean).join(' ') || 'Sans nom'}</strong></td><td>{rep.region || '—'}</td><td>{rep.clients ?? '—'}</td><td>{rep.ventes ?? '—'}</td><td className="cs-number">{formatMoney(rep.ca)}</td><td className="cs-number">{formatMoney(rep.commissions)}</td></tr>)}</tbody></table></div> : <EmptyState title="Aucun résultat sur cette période." detail="Les résultats de l’équipe apparaîtront ici lorsqu’ils seront disponibles." />}</section>
+  </section>;
+}
+
+function RepEditor({ busy, onClose, onSave }) {
+  const [form, setForm] = useState({ nom: '', prenom: '', email: '', telephone: '', region: '', password: '' });
+  const change = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const submit = (event) => {
+    event.preventDefault();
+    onSave({ ...form, nom: form.nom.trim(), prenom: form.prenom.trim(), email: form.email.trim(), telephone: form.telephone.trim(), region: form.region.trim() });
+  };
+  return <Modal title="Ajouter un commercial" description="Créez un accès personnel au portail commercial." onClose={onClose} testId="dialog-create-rep">
+    <form className="cs-form" onSubmit={submit}>
+      <div className="cs-form-grid">
+        <label className="cs-field">Prénom<input data-testid="input-rep-first-name" required maxLength={120} value={form.prenom} onChange={change('prenom')} /></label>
+        <label className="cs-field">Nom<input data-testid="input-rep-last-name" required maxLength={120} value={form.nom} onChange={change('nom')} /></label>
+      </div>
+      <label className="cs-field">Adresse e-mail<input data-testid="input-rep-email" type="email" required maxLength={255} autoComplete="email" value={form.email} onChange={change('email')} /></label>
+      <div className="cs-form-grid">
+        <label className="cs-field">Téléphone<input data-testid="input-rep-phone" type="tel" maxLength={40} value={form.telephone} onChange={change('telephone')} /></label>
+        <label className="cs-field">Région<input data-testid="input-rep-region" maxLength={120} value={form.region} onChange={change('region')} placeholder="Ex. Dakar" /></label>
+      </div>
+      <label className="cs-field">Mot de passe initial<input data-testid="input-rep-password" type="password" autoComplete="new-password" minLength={8} required value={form.password} onChange={change('password')} /></label>
+      <p className="cs-inline-note">Le taux de commission est fixé à 10 % par la plateforme et ne peut pas être modifié depuis cet espace.</p>
+      <div className="cs-form-actions"><button type="button" className="cs-button cs-button-outline" data-testid="button-cancel-rep" onClick={onClose}>Annuler</button><button className="cs-button cs-button-primary" data-testid="button-save-rep" disabled={busy}>Créer le compte</button></div>
+    </form>
+  </Modal>;
 }
 
 function ClientEditor({ client, busy, onClose, onSave }) {

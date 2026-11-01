@@ -1,5 +1,6 @@
 import express from 'express';
 import { desc, eq, sql } from 'drizzle-orm';
+import bcrypt from 'bcryptjs';
 import { db } from '../db.js';
 import {
   abonnements,
@@ -15,6 +16,23 @@ const router = express.Router();
 const OWNER_EMAIL = (process.env.SAAS_PLATFORM_OWNER_EMAIL || 'admin@orionexa.net').trim().toLowerCase();
 const clientStatuses = new Set(['trial', 'suspendu', 'inactif']);
 const planStatuses = new Set(['mensuel', 'annuel']);
+const COMMISSION_RATE = '10';
+
+function reportPeriod(req, res) {
+  const today = new Date();
+  const defaultTo = today.toISOString().slice(0, 10);
+  const defaultFrom = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+  const from = String(req.query.from || defaultFrom);
+  const to = String(req.query.to || defaultTo);
+  const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))
+    && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
+  if (!validDate(from) || !validDate(to) || from > to) {
+    res.status(400).json({ error: 'Période invalide. Utilisez des dates AAAA-MM-JJ avec un début antérieur à la fin.' });
+    return null;
+  }
+  return { from, to };
+}
 
 export async function requirePlatformOwner(req, res, next) {
   if (!req.user?.id) return res.status(401).json({ error: 'Connexion requise.' });
@@ -164,7 +182,18 @@ router.post('/plans/proposals', async (_req, res) => {
       featuresCRM: true,
       featuresRH: false,
       featuresComptabilite: true,
-      descriptionFeatures: 'Brouillon à valider. Ventes, clients, dépenses, stock, rapports financiers. Plafond photo proposé : 10 par mois, non appliqué techniquement.',
+      descriptionFeatures: [
+        'FONCTIONNALITÉS INCLUSES',
+        '• Tableau de bord et suivi quotidien de l’activité',
+        '• Ventes multi-articles, factures, clients et reçus',
+        '• Achats, fournisseurs et dépenses',
+        '• Catalogue produits et suivi du stock',
+        '• État des résultats, bilan financier et impression des rapports',
+        '• Analyse de ponctualité des paiements avec score indicatif, jamais décision automatique de crédit',
+        '• Saisie différée hors connexion et synchronisation au retour du réseau',
+        '• Saisie de facture ou reçu par photo, avec vérification avant enregistrement (Groq et connexion requis)',
+        '• Assistance par courriel',
+      ].join('\n'),
       actif: false,
     },
     {
@@ -180,7 +209,16 @@ router.post('/plans/proposals', async (_req, res) => {
       featuresCRM: true,
       featuresRH: false,
       featuresComptabilite: true,
-      descriptionFeatures: 'Brouillon à valider. Toutes les fonctions Lite, 3 utilisateurs. Plafond photo proposé : 50 par mois, non appliqué techniquement.',
+      descriptionFeatures: [
+        'FONCTIONNALITÉS INCLUSES',
+        '• Toutes les fonctions du forfait Solo',
+        '• Gestion de l’activité partagée entre plusieurs utilisateurs',
+        '• Gestion partagée des ventes, clients, achats, fournisseurs et stock',
+        '• État des résultats et bilan financier',
+        '• Travail hors connexion avec synchronisation au retour du réseau',
+        '• Saisie de facture ou reçu par photo, avec vérification avant enregistrement (Groq et connexion requis)',
+        '• Assistance par courriel',
+      ].join('\n'),
       actif: false,
     },
     {
@@ -196,17 +234,37 @@ router.post('/plans/proposals', async (_req, res) => {
       featuresCRM: true,
       featuresRH: false,
       featuresComptabilite: true,
-      descriptionFeatures: 'Brouillon à valider. Toutes les fonctions Lite, 10 utilisateurs. Plafond photo proposé : 150 par mois, non appliqué techniquement.',
+      descriptionFeatures: [
+        'FONCTIONNALITÉS INCLUSES',
+        '• Toutes les fonctions du forfait Commerce',
+        '• Gestion d’équipe étendue et assistance prioritaire',
+        '• Gestion partagée des ventes, clients, achats, fournisseurs et stock',
+        '• État des résultats et bilan financier',
+        '• Travail hors connexion avec synchronisation au retour du réseau',
+        '• Saisie de facture ou reçu par photo, avec vérification avant enregistrement (Groq et connexion requis)',
+        '• Assistance prioritaire par courriel',
+      ].join('\n'),
       actif: false,
     },
   ];
   try {
-    const current = await db.select({ nom: plansAbonnement.nom }).from(plansAbonnement);
-    const existingNames = new Set(current.map((plan) => plan.nom.toLocaleLowerCase()));
-    const missing = proposals.filter((plan) => !existingNames.has(plan.nom.toLocaleLowerCase()));
-    if (missing.length) await db.insert(plansAbonnement).values(missing);
+    const current = await db.select().from(plansAbonnement);
+    let created = 0;
+    let updated = 0;
+    for (const proposal of proposals) {
+      const existing = current.find((plan) => plan.nom.toLocaleLowerCase() === proposal.nom.toLocaleLowerCase());
+      if (existing && !existing.actif && existing.descriptionFeatures !== proposal.descriptionFeatures) {
+        await db.update(plansAbonnement)
+          .set({ descriptionFeatures: proposal.descriptionFeatures })
+          .where(eq(plansAbonnement.id, existing.id));
+        updated += 1;
+      } else if (!existing) {
+        await db.insert(plansAbonnement).values(proposal);
+        created += 1;
+      }
+    }
     const plans = await db.select().from(plansAbonnement).orderBy(plansAbonnement.prix);
-    res.json({ created: missing.length, plans });
+    res.json({ created, updated, plans });
   } catch (error) {
     res.status(500).json({ error: 'Impossible de préparer les brouillons de forfaits.' });
   }
@@ -344,7 +402,7 @@ router.get('/commerciaux', async (_req, res) => {
       email: saasCommerciaux.email,
       telephone: saasCommerciaux.telephone,
       region: saasCommerciaux.region,
-      commission: saasCommerciaux.commission,
+      commission: sql`10`,
       objectifMensuel: saasCommerciaux.objectifMensuel,
       actif: saasCommerciaux.actif,
       createdAt: saasCommerciaux.createdAt,
@@ -354,6 +412,105 @@ router.get('/commerciaux', async (_req, res) => {
     res.json(list);
   } catch (error) {
     res.status(500).json({ error: 'Impossible de charger les commerciaux.' });
+  }
+});
+
+router.post('/commerciaux', async (req, res) => {
+  const body = req.body || {};
+  const nom = typeof body.nom === 'string' ? body.nom.trim() : '';
+  const prenom = typeof body.prenom === 'string' ? body.prenom.trim() : '';
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  const telephone = typeof body.telephone === 'string' ? body.telephone.trim() : '';
+  const region = typeof body.region === 'string' ? body.region.trim() : '';
+  if (!nom || !prenom || !email || !password) {
+    return res.status(400).json({ error: 'Le nom, le prénom, le courriel et le mot de passe sont obligatoires.' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Adresse courriel invalide.' });
+  }
+  if (password.length < 8 || password.length > 200) {
+    return res.status(400).json({ error: 'Le mot de passe doit contenir entre 8 et 200 caractères.' });
+  }
+  try {
+    const [existing] = await db.select({ id: saasCommerciaux.id })
+      .from(saasCommerciaux)
+      .where(eq(saasCommerciaux.email, email))
+      .limit(1);
+    if (existing) return res.status(409).json({ error: 'Un compte commercial utilise déjà ce courriel.' });
+    const passwordHash = await bcrypt.hash(password, 12);
+    const [commercial] = await db.insert(saasCommerciaux).values({
+      nom: nom.slice(0, 255),
+      prenom: prenom.slice(0, 255),
+      email,
+      telephone: telephone.slice(0, 50) || null,
+      region: region.slice(0, 100) || null,
+      passwordHash,
+      commission: COMMISSION_RATE,
+      actif: true,
+    }).returning({
+      id: saasCommerciaux.id,
+      nom: saasCommerciaux.nom,
+      prenom: saasCommerciaux.prenom,
+      email: saasCommerciaux.email,
+      telephone: saasCommerciaux.telephone,
+      region: saasCommerciaux.region,
+      commission: saasCommerciaux.commission,
+      actif: saasCommerciaux.actif,
+      createdAt: saasCommerciaux.createdAt,
+    });
+    res.status(201).json(commercial);
+  } catch (error) {
+    req.log?.error({ err: error }, 'Échec de création du compte commercial');
+    res.status(500).json({ error: 'Impossible de créer le compte commercial.' });
+  }
+});
+
+router.get('/reports', async (req, res) => {
+  const period = reportPeriod(req, res);
+  if (!period) return;
+  try {
+    const report = await db.execute(sql`
+      WITH clients AS (
+        SELECT commercial_id, COUNT(*)::int AS clients
+        FROM saas_clients
+        WHERE commercial_id IS NOT NULL
+          AND date_inscription >= ${period.from}::date
+          AND date_inscription < (${period.to}::date + interval '1 day')
+        GROUP BY commercial_id
+      ),
+      ventes AS (
+        SELECT commercial_id, COUNT(*)::int AS ventes,
+          COALESCE(SUM(montant_vente), 0)::numeric AS ca,
+          COALESCE(SUM(commission), 0)::numeric AS commissions
+        FROM saas_ventes
+        WHERE commercial_id IS NOT NULL
+          AND statut = 'confirmée'
+          AND date_vente >= ${period.from}::date
+          AND date_vente < (${period.to}::date + interval '1 day')
+        GROUP BY commercial_id
+      )
+      SELECT c.id, c.nom, c.prenom, c.region,
+        COALESCE(cl.clients, 0)::int AS clients,
+        COALESCE(v.ventes, 0)::int AS ventes,
+        COALESCE(v.ca, 0)::numeric AS ca,
+        COALESCE(v.commissions, 0)::numeric AS commissions
+      FROM saas_commerciaux c
+      LEFT JOIN clients cl ON cl.commercial_id = c.id
+      LEFT JOIN ventes v ON v.commercial_id = c.id
+      ORDER BY commissions DESC, ca DESC, c.nom ASC
+    `);
+    const commerciaux = rowsOf(report);
+    const totals = commerciaux.reduce((sum, row) => ({
+      clients: sum.clients + Number(row.clients || 0),
+      ventes: sum.ventes + Number(row.ventes || 0),
+      ca: sum.ca + Number(row.ca || 0),
+      commissions: sum.commissions + Number(row.commissions || 0),
+    }), { clients: 0, ventes: 0, ca: 0, commissions: 0 });
+    res.json({ period, totals, commerciaux });
+  } catch (error) {
+    req.log?.error({ err: error }, 'Échec de génération du rapport commercial');
+    res.status(500).json({ error: 'Impossible de générer le rapport commercial.' });
   }
 });
 
