@@ -7,6 +7,7 @@ import PaymentAnalysis from './PaymentAnalysis.jsx';
 import FinancialStatements from './FinancialStatements.jsx';
 import TestReport from './TestReport.jsx';
 import PurchasesPage from './PurchasesPage.jsx';
+import CommercialSpace from './CommercialSpace.jsx';
 import { setAuthTokenGetter } from '@workspace/api-client-react';
 import './lite.css';
 
@@ -33,6 +34,7 @@ export default function LiteApp({ onLogout }) {
 
 function LiteShell({ user, onLogout }) {
   const [page, setPage] = useState('today');
+  const isPlatformOwner = user.role === 'admin' && String(user.email || '').trim().toLowerCase() === 'admin@orionexa.net';
   const [online, setOnline] = useState(navigator.onLine);
   const [pending, setPending] = useState(0);
   const [pendingItems, setPendingItems] = useState([]);
@@ -144,11 +146,13 @@ function LiteShell({ user, onLogout }) {
   const saveSettings = (next) => { setSettings(next); localStorage.setItem(`lite-settings-${user.id || user.entrepriseId}`, JSON.stringify(next)); setToast(t('Préférences enregistrées', 'Preferences saved')); };
   const nav = [
      ['today', t('Aujourd’hui', 'Today'), '⌂'], ['sales', t('Ventes', 'Sales'), '+'], ['debts', t('Clients & dettes', 'Customers & debts'), '◎'],
-      ['expenses', t('Dépenses', 'Expenses'), '−'], ['stock', t('Stock', 'Stock'), '□'], ['purchases', t('Achats', 'Purchases'), '↗'], ['reports', t('Reçus & rapports', 'Receipts & reports'), '▤'], ['assistant', t('Saisie par photo', 'Photo entry'), '▧'], ['tests', t('Tests', 'Tests'), '✓'], ['settings', t('Réglages', 'Settings'), 'S']
+     ['expenses', t('Dépenses', 'Expenses'), '−'], ['stock', t('Stock', 'Stock'), '□'], ['purchases', t('Achats', 'Purchases'), '↗'], ['reports', t('Reçus & rapports', 'Receipts & reports'), '▤'], ['assistant', t('Saisie par photo', 'Photo entry'), '▧'], ['tests', t('Tests', 'Tests'), '✓'], ['settings', t('Réglages', 'Settings'), 'S'],
+     ...(isPlatformOwner ? [['commercial', t('Espace commercial', 'Commercial space'), 'C']] : [])
   ];
+  if (page === 'commercial' && isPlatformOwner) return <CommercialSpace onBack={() => setPage('today')} />;
   return <div className="lite-app">
      <aside className="lite-sidebar"><div className="lite-brand"><img src="/logo-comptaorion.png" alt="" /><span>ComptaOrion <b>Lite</b></span></div><nav>{nav.map(([id, label, mark]) => <button key={id} data-testid={`nav-${id}`} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><i>{mark}</i>{label}</button>)}</nav><div className="lite-side-foot"><span className="avatar">{(user.prenom || user.nom || 'O').slice(0, 1).toUpperCase()}</span><span>{user.prenom || user.nom || 'Mon entreprise'}</span></div></aside>
-     <main className="lite-main"><header className="lite-topbar"><div><span className={`network-dot ${online ? 'is-online' : ''}`}></span>{online ? t('En ligne', 'Online') : t('Hors connexion', 'Offline')}</div><div className="top-actions">{pending > 0 && <button className="sync-pill" onClick={syncQueue}>{pending} {t('à synchroniser', 'pending')}</button>}<button className="mobile-menu" onClick={() => setPage('today')}>ComptaOrion <b>Lite</b></button></div></header><div className="lite-content"><div className="lite-page">{page === 'today' && <Today data={visibleData} settings={settings} t={t} setPage={setPage} />}
+      <main className="lite-main"><header className="lite-topbar"><div><span className={`network-dot ${online ? 'is-online' : ''}`}></span>{online ? t('En ligne', 'Online') : t('Hors connexion', 'Offline')}</div><div className="top-actions">{isPlatformOwner && <button className="owner-portal-link" data-testid="nav-commercial-mobile" onClick={() => setPage('commercial')}>{t('Espace commercial', 'Commercial space')}</button>}{pending > 0 && <button className="sync-pill" onClick={syncQueue}>{pending} {t('à synchroniser', 'pending')}</button>}<button className="mobile-menu" onClick={() => setPage('today')}>ComptaOrion <b>Lite</b></button></div></header><div className="lite-content"><div className="lite-page">{page === 'today' && <Today data={visibleData} settings={settings} t={t} setPage={setPage} />}
         {page === 'sales' && <Sales data={visibleData} settings={settings} t={t} write={write} reload={load} notify={setToast} />}
       {page === 'debts' && <Debts data={data} settings={settings} t={t} write={write} reload={load} />}
        {page === 'expenses' && <Expenses data={visibleData} user={user} settings={settings} t={t} write={write} reload={load} />}

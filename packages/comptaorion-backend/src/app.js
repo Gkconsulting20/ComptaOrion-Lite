@@ -10,6 +10,7 @@ import depensesRoutes from './routes/dépenses.js';
 import financialReportsRoutes from './routes/financial-reports.js';
 import aiRoutes from './routes/ai.js';
 import litePurchasesRoutes from './routes/lite-purchases.js';
+import saasPlatformAdminRoutes, { requirePlatformOwner } from './routes/saas-platform-admin.js';
 import { authMiddleware, entrepriseIsolation } from './auth.js';
 import { createTenantMiddleware } from './utils/rlsPolicies.js';
 import { idempotencyMiddleware } from './middleware/idempotency.js';
@@ -22,6 +23,7 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok', application: 'Com
 app.get('/api/healthz', (_req, res) => res.json({ status: 'ok', application: 'ComptaOrion Lite' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/auth-security', authSecurityRoutes);
+app.use('/api/saas-admin', authMiddleware, requirePlatformOwner, saasPlatformAdminRoutes);
 app.use('/api', authMiddleware, entrepriseIsolation, createTenantMiddleware(), idempotencyMiddleware);
 app.use('/api/clients', clientsRoutes);
 app.use('/api/produits', produitsRoutes);

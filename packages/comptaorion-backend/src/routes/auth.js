@@ -1,6 +1,6 @@
 import express from 'express';
 import { db } from '../db.js';
-import { users, entreprises } from '../schema.js';
+import { users, entreprises, saasClients } from '../schema.js';
 import { eq } from 'drizzle-orm';
 import {
   generateToken,
@@ -76,6 +76,16 @@ router.post('/register', async (req, res) => {
         actif: true,
       })
       .returning();
+
+    try {
+      await db.insert(saasClients).values({
+        entrepriseId: newEntreprise.id,
+        statut: 'trial',
+        source: 'web',
+      }).onConflictDoNothing();
+    } catch (saasError) {
+      console.error('Impossible d’enregistrer le nouvel essai SaaS:', saasError.message);
+    }
 
     // Initialiser automatiquement le plan comptable SYSCOHADA
     try {
