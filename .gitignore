@@ -57,3 +57,4 @@ Thumbs.db
 !.dev.vars.example
 .wrangler/
 /generated-artifacts/
+.neon
