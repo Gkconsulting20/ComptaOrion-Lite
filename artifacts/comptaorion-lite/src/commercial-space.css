@@ -102,6 +102,8 @@
 .cs-table tbody tr:last-child td { border-bottom: 0; }
 .cs-table td strong { display: block; color: var(--cs-ink); font-size: 12px; font-weight: 600; }
 .cs-table td small { display: block; margin-top: 4px; color: var(--cs-muted); font-size: 10px; }
+.cs-row-actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 148px; }
+.cs-table[data-testid="table-reps"] { min-width: 830px; }
 .cs-number { color: var(--cs-ink) !important; font: 600 12px 'Space Grotesk', sans-serif !important; white-space: nowrap; }
 .cs-badge { display: inline-flex; align-items: center; gap: 5px; border-radius: 99px; padding: 5px 8px; color: #51625c; background: #edf0e9; font-size: 9px; font-weight: 700; text-transform: capitalize; white-space: nowrap; }
 .cs-badge::before { width: 5px; height: 5px; border-radius: 50%; background: currentColor; content: ''; }

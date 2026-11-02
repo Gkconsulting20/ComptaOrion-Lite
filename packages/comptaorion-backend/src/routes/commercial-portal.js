@@ -148,7 +148,7 @@ router.get('/dashboard', authenticateCommercial, async (req, res) => {
       id: saasVentes.id,
       clientNom: entreprises.nom,
       montantVente: saasVentes.montantVente,
-      commission: saasVentes.commission,
+      commission: sql`CASE WHEN ${saasVentes.statut} = 'confirmée' THEN ROUND(${saasVentes.montantVente} * 0.10, 2) ELSE 0 END`,
       dateVente: saasVentes.dateVente,
       statut: saasVentes.statut
     })
@@ -163,9 +163,9 @@ router.get('/dashboard', authenticateCommercial, async (req, res) => {
         (SELECT COUNT(*) FROM saas_clients WHERE commercial_id = ${commercialId})::int AS total_clients,
         (SELECT COUNT(*) FROM saas_clients WHERE commercial_id = ${commercialId} AND statut = 'actif')::int AS clients_actifs,
         COALESCE(SUM(montant_vente) FILTER (WHERE statut = 'confirmée'), 0)::numeric AS ca_total,
-        COALESCE(SUM(commission) FILTER (WHERE statut = 'confirmée'), 0)::numeric AS commissions_totales,
+        COALESCE(SUM(ROUND(montant_vente * 0.10, 2)) FILTER (WHERE statut = 'confirmée'), 0)::numeric AS commissions_totales,
         COALESCE(SUM(montant_vente) FILTER (WHERE statut = 'confirmée' AND date_vente >= date_trunc('month', CURRENT_DATE)), 0)::numeric AS ca_mois,
-        COALESCE(SUM(commission) FILTER (WHERE statut = 'confirmée' AND date_vente >= date_trunc('month', CURRENT_DATE)), 0)::numeric AS commissions_mois
+        COALESCE(SUM(ROUND(montant_vente * 0.10, 2)) FILTER (WHERE statut = 'confirmée' AND date_vente >= date_trunc('month', CURRENT_DATE)), 0)::numeric AS commissions_mois
       FROM saas_ventes
       WHERE commercial_id = ${commercialId}
     `);
@@ -209,7 +209,7 @@ router.get('/reports', authenticateCommercial, async (req, res) => {
         id: saasVentes.id,
         clientNom: entreprises.nom,
         montantVente: saasVentes.montantVente,
-        commission: saasVentes.commission,
+        commission: sql`CASE WHEN ${saasVentes.statut} = 'confirmée' THEN ROUND(${saasVentes.montantVente} * 0.10, 2) ELSE 0 END`,
         dateVente: saasVentes.dateVente,
         statut: saasVentes.statut,
       })
@@ -232,7 +232,7 @@ router.get('/reports', authenticateCommercial, async (req, res) => {
     const clientCount = clientCountResult.rows?.[0] || clientCountResult[0] || {};
     const stats = {
       clients: Number(clientCount.clients || 0),
-      ventes: confirmed.length,
+      ventes: salesResult.length,
       ca: confirmed.reduce((sum, sale) => sum + Number(sale.montantVente || 0), 0),
       commissions: confirmed.reduce((sum, sale) => sum + Number(sale.commission || 0), 0),
     };

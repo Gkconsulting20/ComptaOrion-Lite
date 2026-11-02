@@ -75,7 +75,7 @@ router.get('/dashboard', async (req, res) => {
       `),
       db.execute(sql`
         SELECT COALESCE(SUM(montant_vente) FILTER (WHERE statut = 'confirmée'), 0)::numeric AS ventes,
-          COALESCE(SUM(commission) FILTER (WHERE statut = 'confirmée'), 0)::numeric AS commissions
+          COALESCE(SUM(ROUND(montant_vente * 0.10, 2)) FILTER (WHERE statut = 'confirmée'), 0)::numeric AS commissions
         FROM saas_ventes
       `),
       db.select({
@@ -376,7 +376,7 @@ router.get('/ventes', async (_req, res) => {
       commercial: sql`COALESCE(${saasCommerciaux.prenom} || ' ' || ${saasCommerciaux.nom}, 'Vente en ligne')`,
       client: entreprises.nom,
       montantVente: saasVentes.montantVente,
-      commission: saasVentes.commission,
+      commission: sql`CASE WHEN ${saasVentes.statut} = 'confirmée' THEN ROUND(${saasVentes.montantVente} * 0.10, 2) ELSE 0 END`,
       dateVente: saasVentes.dateVente,
       statut: saasVentes.statut,
       source: saasVentes.source,
@@ -466,6 +466,72 @@ router.post('/commerciaux', async (req, res) => {
   }
 });
 
+router.patch('/commerciaux/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: 'Identifiant commercial invalide.' });
+  const body = req.body || {};
+  const updates = { updatedAt: new Date() };
+  const textFields = [
+    ['nom', 255, true],
+    ['prenom', 255, true],
+    ['email', 255, true],
+    ['telephone', 50, false],
+    ['region', 100, false],
+  ];
+
+  for (const [field, maxLength, required] of textFields) {
+    if (body[field] === undefined) continue;
+    if (typeof body[field] !== 'string') return res.status(400).json({ error: `Valeur invalide pour ${field}.` });
+    const value = body[field].trim();
+    if (required && !value) return res.status(400).json({ error: `${field} est obligatoire.` });
+    if (value.length > maxLength) return res.status(400).json({ error: `La valeur de ${field} est trop longue.` });
+    if (field === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      return res.status(400).json({ error: 'Adresse courriel invalide.' });
+    }
+    updates[field] = value ? (field === 'email' ? value.toLowerCase() : value) : null;
+  }
+  if (body.actif !== undefined) {
+    if (typeof body.actif !== 'boolean') return res.status(400).json({ error: 'État du compte invalide.' });
+    updates.actif = body.actif;
+  }
+  if (body.password !== undefined && body.password !== '') {
+    if (typeof body.password !== 'string' || body.password.length < 8 || body.password.length > 200) {
+      return res.status(400).json({ error: 'Le nouveau mot de passe doit contenir entre 8 et 200 caractères.' });
+    }
+  }
+  if (Object.keys(updates).length === 1) return res.status(400).json({ error: 'Aucune modification à enregistrer.' });
+
+  try {
+    if (body.password) updates.passwordHash = await bcrypt.hash(body.password, 12);
+    if (updates.email) {
+      const [existing] = await db.select({ id: saasCommerciaux.id })
+        .from(saasCommerciaux)
+        .where(sql`LOWER(${saasCommerciaux.email}) = ${updates.email} AND ${saasCommerciaux.id} <> ${id}`)
+        .limit(1);
+      if (existing) return res.status(409).json({ error: 'Un autre compte commercial utilise déjà ce courriel.' });
+    }
+    const [commercial] = await db.update(saasCommerciaux)
+      .set(updates)
+      .where(eq(saasCommerciaux.id, id))
+      .returning({
+        id: saasCommerciaux.id,
+        nom: saasCommerciaux.nom,
+        prenom: saasCommerciaux.prenom,
+        email: saasCommerciaux.email,
+        telephone: saasCommerciaux.telephone,
+        region: saasCommerciaux.region,
+        commission: sql`10`,
+        actif: saasCommerciaux.actif,
+        createdAt: saasCommerciaux.createdAt,
+      });
+    if (!commercial) return res.status(404).json({ error: 'Commercial introuvable.' });
+    res.json(commercial);
+  } catch (error) {
+    req.log?.error({ err: error }, 'Échec de mise à jour du compte commercial');
+    res.status(500).json({ error: 'Impossible de mettre à jour ce compte commercial.' });
+  }
+});
+
 router.get('/reports', async (req, res) => {
   const period = reportPeriod(req, res);
   if (!period) return;
@@ -482,7 +548,7 @@ router.get('/reports', async (req, res) => {
       ventes AS (
         SELECT commercial_id, COUNT(*)::int AS ventes,
           COALESCE(SUM(montant_vente), 0)::numeric AS ca,
-          COALESCE(SUM(commission), 0)::numeric AS commissions
+          COALESCE(SUM(ROUND(montant_vente * 0.10, 2)), 0)::numeric AS commissions
         FROM saas_ventes
         WHERE commercial_id IS NOT NULL
           AND statut = 'confirmée'
