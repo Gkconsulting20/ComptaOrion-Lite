@@ -15,12 +15,12 @@ const initialRegister = {
   commercialId: new URLSearchParams(window.location.search).get('ref') || '',
 };
 
-export function Login({ onLoginSuccess }) {
+export function Login({ onLoginSuccess, initialMessage = '' }) {
   const [mode, setMode] = useState('login');
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [registerData, setRegisterData] = useState(initialRegister);
   const [resetEmail, setResetEmail] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialMessage);
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -58,8 +58,8 @@ export function Login({ onLoginSuccess }) {
       setError('Les mots de passe ne correspondent pas');
       return;
     }
-    if (registerData.password.length < 6) {
-      setError('Le mot de passe doit contenir au moins 6 caractères');
+    if (registerData.password.length < 12) {
+      setError('Le mot de passe doit contenir au moins 12 caractères.');
       return;
     }
     setLoading(true);
@@ -152,10 +152,10 @@ export function Login({ onLoginSuccess }) {
                   <input autoComplete="given-name" value={registerData.prenom} onChange={(event) => setRegisterData({ ...registerData, prenom: event.target.value })} />
                 </label>
                 <label>Mot de passe
-                  <input type="password" autoComplete="new-password" value={registerData.password} onChange={(event) => setRegisterData({ ...registerData, password: event.target.value })} required />
+                  <input type="password" autoComplete="new-password" minLength={12} maxLength={72} value={registerData.password} onChange={(event) => setRegisterData({ ...registerData, password: event.target.value })} required />
                 </label>
                 <label>Confirmer le mot de passe
-                  <input type="password" autoComplete="new-password" value={registerData.confirmPassword} onChange={(event) => setRegisterData({ ...registerData, confirmPassword: event.target.value })} required />
+                  <input type="password" autoComplete="new-password" minLength={12} maxLength={72} value={registerData.confirmPassword} onChange={(event) => setRegisterData({ ...registerData, confirmPassword: event.target.value })} required />
                 </label>
               </div>
               <div className="auth-company-label">Votre entreprise <span>Facultatif</span></div>

@@ -1,7 +1,7 @@
 import express from 'express';
 import { db } from '../db.js';
 import { users, entreprises, saasClients, saasCommerciaux } from '../schema.js';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   generateToken,
   generateRefreshToken,
@@ -11,6 +11,7 @@ import {
   verifyToken,
 } from '../auth.js';
 import { initializeSyscohadaForEnterprise } from '../services/syscohadaService.js';
+import { evaluateSaasAccess, getSaasAccess } from '../trial-access.js';
 
 const router = express.Router();
 
@@ -33,19 +34,36 @@ router.post('/register', async (req, res) => {
       commercialId: referralCommercialId,
     } = req.body;
 
-    // Validation
-    if (!username || !email || !password) {
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedUsername = String(username || '').trim();
+    if (!normalizedUsername || !normalizedEmail || typeof password !== 'string') {
       return res.status(400).json({ error: 'Champs requis: username, email, password' });
+    }
+    if (normalizedUsername.length < 3 || normalizedUsername.length > 80) {
+      return res.status(400).json({ error: 'Le nom d’utilisateur doit contenir entre 3 et 80 caractères.' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return res.status(400).json({ error: 'Adresse email invalide.' });
+    }
+    if (password.length < 12 || new TextEncoder().encode(password).length > 72) {
+      return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 12 caractères et au maximum 72 octets.' });
     }
 
     // Vérifier si l'utilisateur existe déjà
     const [existingUser] = await db
       .select()
       .from(users)
-      .where(eq(users.email, email));
+      .where(sql`LOWER(${users.email}) = ${normalizedEmail}`);
 
     if (existingUser) {
       return res.status(400).json({ error: 'Cet email est déjà utilisé' });
+    }
+    const [existingUsername] = await db.select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, normalizedUsername))
+      .limit(1);
+    if (existingUsername) {
+      return res.status(400).json({ error: 'Ce nom d’utilisateur est déjà utilisé.' });
     }
 
     let referralCommercial = null;
@@ -61,47 +79,39 @@ router.post('/register', async (req, res) => {
       if (!referralCommercial) return res.status(400).json({ error: 'Ce lien commercial n’est plus disponible.' });
     }
 
-    // Créer d'abord l'entreprise
-    const [newEntreprise] = await db
-      .insert(entreprises)
-      .values({
-        nom: entrepriseNom || `Entreprise de ${nom || username}`,
-        adresse: entrepriseAdresse,
-        telephone: entrepriseTelephone,
-        email: entrepriseEmail || email,
-        actif: true,
-      })
-      .returning();
-
-    // Hash du mot de passe
     const passwordHash = await hashPassword(password);
-
-    // Créer l'utilisateur
-    const [newUser] = await db
-      .insert(users)
-      .values({
-        entrepriseId: newEntreprise.id,
-        username,
-        email,
-        passwordHash,
-        nom,
-        prenom,
-        role: 'admin', // Premier utilisateur = admin
-        actif: true,
-      })
-      .returning();
-
-    try {
-      await db.insert(saasClients).values({
-        entrepriseId: newEntreprise.id,
+    const { newEntreprise, newUser, newSaasClient } = await db.transaction(async (tx) => {
+      const [createdEntreprise] = await tx.insert(entreprises)
+        .values({
+          nom: entrepriseNom || `Entreprise de ${nom || normalizedUsername}`,
+          adresse: entrepriseAdresse,
+          telephone: entrepriseTelephone,
+          email: entrepriseEmail || normalizedEmail,
+          actif: true,
+        })
+        .returning();
+      const [createdUser] = await tx.insert(users)
+        .values({
+          entrepriseId: createdEntreprise.id,
+          username: normalizedUsername,
+          email: normalizedEmail,
+          passwordHash,
+          nom,
+          prenom,
+          role: 'admin',
+          actif: true,
+        })
+        .returning();
+      const [createdSaasClient] = await tx.insert(saasClients).values({
+        entrepriseId: createdEntreprise.id,
         commercialId: referralCommercial?.id || null,
         statut: 'trial',
         source: referralCommercial ? 'commercial' : 'web',
         notes: referralCommercial ? `Inscription via le lien du commercial #${referralCommercial.id}` : null,
-      }).onConflictDoNothing();
-    } catch (saasError) {
-      console.error('Impossible d’enregistrer le nouvel essai SaaS:', saasError.message);
-    }
+      }).returning();
+      return { newEntreprise: createdEntreprise, newUser: createdUser, newSaasClient: createdSaasClient };
+    });
+    const trialAccess = evaluateSaasAccess(newSaasClient);
 
     // Initialiser automatiquement le plan comptable SYSCOHADA
     try {
@@ -125,6 +135,7 @@ router.post('/register', async (req, res) => {
         prenom: newUser.prenom,
         role: newUser.role,
         entrepriseId: newUser.entrepriseId,
+        trialEndsAt: trialAccess.trialEndsAt,
       },
       entreprise: newEntreprise,
       token,
@@ -170,6 +181,17 @@ router.post('/login', async (req, res) => {
     if (!isValid) {
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
+    if (!user.actif) return res.status(403).json({ error: 'Compte désactivé', code: 'ACCOUNT_INACTIVE' });
+    const saasAccess = await getSaasAccess(user.entrepriseId, user);
+    if (!saasAccess.allowed) {
+      return res.status(403).json({
+        code: saasAccess.code,
+        error: saasAccess.code === 'TRIAL_EXPIRED'
+          ? 'La période d’essai est terminée. Contactez ComptaOrion pour réactiver votre accès.'
+          : 'Cet espace est suspendu ou désactivé. Contactez ComptaOrion.',
+        trialEndsAt: saasAccess.trialEndsAt,
+      });
+    }
 
     // Mettre à jour la dernière connexion
     await db
@@ -197,6 +219,7 @@ router.post('/login', async (req, res) => {
         prenom: user.prenom,
         role: user.role,
         entrepriseId: user.entrepriseId,
+        trialEndsAt: saasAccess.trialEndsAt,
       },
       entreprise,
       token,
@@ -235,6 +258,10 @@ router.post('/refresh', async (req, res) => {
 
     if (!user || !user.actif) {
       return res.status(401).json({ error: 'Utilisateur introuvable ou inactif' });
+    }
+    const saasAccess = await getSaasAccess(user.entrepriseId, user);
+    if (!saasAccess.allowed) {
+      return res.status(403).json({ code: saasAccess.code, error: 'La période d’essai est terminée.' });
     }
 
     // Générer un nouveau token
@@ -278,6 +305,17 @@ router.get('/me', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'Utilisateur introuvable' });
     }
+    if (!user.actif) return res.status(403).json({ error: 'Compte désactivé', code: 'ACCOUNT_INACTIVE' });
+    const saasAccess = await getSaasAccess(user.entrepriseId, user);
+    if (!saasAccess.allowed) {
+      return res.status(403).json({
+        code: saasAccess.code,
+        error: saasAccess.code === 'TRIAL_EXPIRED'
+          ? 'La période d’essai est terminée. Contactez ComptaOrion pour réactiver votre accès.'
+          : 'Cet espace est suspendu ou désactivé. Contactez ComptaOrion.',
+        trialEndsAt: saasAccess.trialEndsAt,
+      });
+    }
 
     // Récupérer l'entreprise
     const [entreprise] = await db
@@ -294,6 +332,7 @@ router.get('/me', async (req, res) => {
         prenom: user.prenom,
         role: user.role,
         entrepriseId: user.entrepriseId,
+        trialEndsAt: saasAccess.trialEndsAt,
       },
       entreprise,
     });

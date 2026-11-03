@@ -28,7 +28,31 @@ function Modal({ title, children, onClose }) {
 
 export default function LiteApp({ onLogout }) {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('user') || 'null'));
-  if (!localStorage.getItem('token') || !user) return <Login onLoginSuccess={setUser} />;
+  const [accessMessage, setAccessMessage] = useState('');
+  const locallyExpired = Number.isFinite(Date.parse(user?.trialEndsAt || ''))
+    && Date.now() >= Date.parse(user.trialEndsAt);
+  useEffect(() => {
+    const onTrialExpired = (event) => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+      setAccessMessage(event.detail?.error || 'La période d’essai est terminée. Contactez ComptaOrion pour réactiver votre accès.');
+      setUser(null);
+    };
+    window.addEventListener('lite-trial-expired', onTrialExpired);
+    return () => window.removeEventListener('lite-trial-expired', onTrialExpired);
+  }, []);
+  useEffect(() => {
+    if (!locallyExpired) return;
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
+    setAccessMessage('La période d’essai est terminée. Contactez ComptaOrion pour réactiver votre accès.');
+    setUser(null);
+  }, [locallyExpired]);
+  if (!localStorage.getItem('token') || !user || locallyExpired) {
+    return <Login initialMessage={accessMessage} onLoginSuccess={(nextUser) => { setAccessMessage(''); setUser(nextUser); }} />;
+  }
   return <LiteShell user={user} onLogout={() => { setUser(null); onLogout?.(); }} />;
 }
 

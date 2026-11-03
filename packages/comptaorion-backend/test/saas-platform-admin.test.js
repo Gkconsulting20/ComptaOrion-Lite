@@ -119,6 +119,7 @@ function registrationAppWithReferral(commercialId) {
       };
       return query;
     },
+    transaction(callback) { return callback(fakeDb); },
   };
   const app = express();
   app.use(express.json());

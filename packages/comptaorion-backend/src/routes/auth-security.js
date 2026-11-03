@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { users, sessions, auditConnexions, passwordResetTokens, permissions } from '../schema.js';
 import { generateToken, generateRefreshToken, verifyRefreshToken, hashPassword, comparePassword, authMiddleware } from '../auth.js';
 import { eq, and, gt, isNull } from 'drizzle-orm';
+import { getSaasAccess, trialAccessMiddleware } from '../trial-access.js';
 
 const router = express.Router();
 
@@ -45,6 +46,19 @@ router.post('/login', async (req, res) => {
       });
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
+    if (!user.actif) {
+      return res.status(403).json({ error: 'Compte désactivé', code: 'ACCOUNT_INACTIVE' });
+    }
+    const saasAccess = await getSaasAccess(user.entrepriseId, user);
+    if (!saasAccess.allowed) {
+      return res.status(403).json({
+        code: saasAccess.code,
+        error: saasAccess.code === 'TRIAL_EXPIRED'
+          ? 'La période d’essai est terminée. Contactez ComptaOrion pour réactiver votre accès.'
+          : 'Cet espace est suspendu ou désactivé. Contactez ComptaOrion.',
+        trialEndsAt: saasAccess.trialEndsAt,
+      });
+    }
 
     const token = generateToken(user);
     const refreshToken = generateRefreshToken(user);
@@ -79,7 +93,8 @@ router.post('/login', async (req, res) => {
         nom: user.nom,
         prenom: user.prenom,
         role: user.role,
-        entrepriseId: user.entrepriseId
+          entrepriseId: user.entrepriseId,
+          trialEndsAt: saasAccess.trialEndsAt,
       },
       token,
       refreshToken,
@@ -90,7 +105,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.post('/logout', authMiddleware, async (req, res) => {
+router.post('/logout', authMiddleware, trialAccessMiddleware, async (req, res) => {
   try {
     const { sessionId } = req.body;
     const ipAddress = req.ip || req.connection.remoteAddress;
@@ -149,6 +164,13 @@ router.post('/refresh', async (req, res) => {
 
     if (!user) {
       return res.status(401).json({ error: 'Utilisateur non trouvé' });
+    }
+    if (!user.actif) {
+      return res.status(401).json({ error: 'Utilisateur inactif', code: 'ACCOUNT_INACTIVE' });
+    }
+    const saasAccess = await getSaasAccess(user.entrepriseId, user);
+    if (!saasAccess.allowed) {
+      return res.status(403).json({ code: saasAccess.code, error: 'La période d’essai est terminée.' });
     }
 
     const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
@@ -268,7 +290,7 @@ router.post('/reset-password', async (req, res) => {
 // GESTION SESSIONS
 // ==========================================
 
-router.get('/sessions', authMiddleware, async (req, res) => {
+router.get('/sessions', authMiddleware, trialAccessMiddleware, async (req, res) => {
   try {
     const userSessions = await db.query.sessions.findMany({
       where: and(
@@ -289,7 +311,7 @@ router.get('/sessions', authMiddleware, async (req, res) => {
   }
 });
 
-router.delete('/sessions/:sessionId', authMiddleware, async (req, res) => {
+router.delete('/sessions/:sessionId', authMiddleware, trialAccessMiddleware, async (req, res) => {
   try {
     await db.update(sessions).set({
       logoutAt: new Date()
@@ -305,7 +327,7 @@ router.delete('/sessions/:sessionId', authMiddleware, async (req, res) => {
 // PERMISSIONS RBAC
 // ==========================================
 
-router.get('/permissions', authMiddleware, async (req, res) => {
+router.get('/permissions', authMiddleware, trialAccessMiddleware, async (req, res) => {
   try {
     const allPermissions = await db.query.permissions.findMany();
     
@@ -337,7 +359,7 @@ router.get('/permissions', authMiddleware, async (req, res) => {
   }
 });
 
-router.put('/permissions/:permissionId', authMiddleware, async (req, res) => {
+router.put('/permissions/:permissionId', authMiddleware, trialAccessMiddleware, async (req, res) => {
   try {
     const { canRead, canWrite, canDelete, canAdmin } = req.body;
     const permId = parseInt(req.params.permissionId);
@@ -393,7 +415,7 @@ router.put('/permissions/:permissionId', authMiddleware, async (req, res) => {
 // AUDIT CONNEXIONS
 // ==========================================
 
-router.get('/audit', authMiddleware, async (req, res) => {
+router.get('/audit', authMiddleware, trialAccessMiddleware, async (req, res) => {
   try {
     const { limit = 100 } = req.query;
 

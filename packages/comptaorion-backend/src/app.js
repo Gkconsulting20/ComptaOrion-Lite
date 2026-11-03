@@ -15,6 +15,7 @@ import commercialPortalRoutes from './routes/commercial-portal.js';
 import { authMiddleware, entrepriseIsolation } from './auth.js';
 import { createTenantMiddleware } from './utils/rlsPolicies.js';
 import { idempotencyMiddleware } from './middleware/idempotency.js';
+import { trialAccessMiddleware } from './trial-access.js';
 
 const app = express();
 // Larger body only for transient photo inference, not for all API endpoints.
@@ -26,7 +27,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/auth-security', authSecurityRoutes);
 app.use('/api/commercial-portal', commercialPortalRoutes);
 app.use('/api/saas-admin', authMiddleware, requirePlatformOwner, saasPlatformAdminRoutes);
-app.use('/api', authMiddleware, entrepriseIsolation, createTenantMiddleware(), idempotencyMiddleware);
+app.use('/api', authMiddleware, entrepriseIsolation, trialAccessMiddleware, createTenantMiddleware(), idempotencyMiddleware);
 app.use('/api/clients', clientsRoutes);
 app.use('/api/produits', produitsRoutes);
 app.use('/api/factures', facturesRoutes);
