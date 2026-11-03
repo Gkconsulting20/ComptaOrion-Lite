@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'wouter';
 import api from '../api.js';
 
 const initialRegister = {
@@ -187,6 +188,9 @@ export function Login({ onLoginSuccess, initialMessage = '' }) {
               <button className="auth-quiet-link" type="button" onClick={() => changeMode('login')}>Retour à la connexion</button>
             </form>
           )}
+          <div className="auth-guide-link">
+            Besoin d’aide ? <Link href="/guide">Consulter le guide d’utilisation</Link>
+          </div>
         </div>
       </section>
     </main>
