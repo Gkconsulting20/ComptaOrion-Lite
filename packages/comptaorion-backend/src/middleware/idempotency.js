@@ -70,7 +70,8 @@ export async function idempotencyMiddleware(req, res, next) {
   }
   req.idempotencyKey = rawKey;
   if ((req.method === 'POST' && req.path === '/factures/lite-sale') ||
-      (req.method === 'POST' && req.path === '/depenses/create')) {
+      (req.method === 'POST' && req.path === '/depenses/create') ||
+      (req.method === 'POST' && req.path === '/depenses/lite-create')) {
     try {
       await ensureIdempotencyTable();
       return next();
