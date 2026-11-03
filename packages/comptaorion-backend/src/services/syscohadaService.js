@@ -301,52 +301,40 @@ export async function initializeSyscohadaForEnterprise(entrepriseId) {
   
   console.log(`Initialisation du plan comptable SYSCOHADA pour entreprise ${eId}...`);
   
-  // Vérifier si des comptes existent déjà
-  const existingComptes = await db.select().from(comptesComptables)
+  // Charger les codes déjà présents et ne créer que les éléments manquants.
+  const existingComptes = await db.select({ numero: comptesComptables.numero }).from(comptesComptables)
     .where(eq(comptesComptables.entrepriseId, eId));
-  
-  if (existingComptes.length > 10) {
-    console.log(`Plan comptable déjà initialisé pour entreprise ${eId} (${existingComptes.length} comptes)`);
-    return { 
-      success: true, 
-      message: 'Plan comptable déjà initialisé',
-      comptesExistants: existingComptes.length 
-    };
-  }
+  const numerosExistants = new Set(existingComptes.map(({ numero }) => numero));
+  const comptesManquants = PLAN_SYSCOHADA.filter(({ numero }) => !numerosExistants.has(numero));
 
-  // Insérer tous les comptes SYSCOHADA
   let insertedCount = 0;
-  for (const compte of PLAN_SYSCOHADA) {
-    try {
-      await db.insert(comptesComptables).values({
-        entrepriseId: eId,
-        numero: compte.numero,
-        nom: compte.nom,
-        type: compte.categorie.toLowerCase(),
-        classe: compte.classe,
-        actif: true
-      });
-      insertedCount++;
-    } catch (err) {
-      // Ignorer les doublons
-    }
+  if (comptesManquants.length) {
+    await db.insert(comptesComptables).values(comptesManquants.map((compte) => ({
+      entrepriseId: eId,
+      numero: compte.numero,
+      nom: compte.nom,
+      type: compte.categorie.toLowerCase(),
+      classe: compte.classe,
+      actif: true
+    })));
+    insertedCount = comptesManquants.length;
   }
 
-  // Créer les journaux de base
+  const existingJournaux = await db.select({ code: journaux.code }).from(journaux)
+    .where(eq(journaux.entrepriseId, eId));
+  const codesExistants = new Set(existingJournaux.map(({ code }) => code));
+  const journauxManquants = JOURNAUX_BASE.filter(({ code }) => !codesExistants.has(code));
+
   let journauxCount = 0;
-  for (const journal of JOURNAUX_BASE) {
-    try {
-      await db.insert(journaux).values({
-        entrepriseId: eId,
-        code: journal.code,
-        nom: journal.nom,
-        type: journal.type,
-        actif: true
-      });
-      journauxCount++;
-    } catch (err) {
-      // Ignorer les doublons
-    }
+  if (journauxManquants.length) {
+    await db.insert(journaux).values(journauxManquants.map((journal) => ({
+      entrepriseId: eId,
+      code: journal.code,
+      nom: journal.nom,
+      type: journal.type,
+      actif: true
+    })));
+    journauxCount = journauxManquants.length;
   }
 
   console.log(`Plan comptable SYSCOHADA initialisé: ${insertedCount} comptes, ${journauxCount} journaux`);

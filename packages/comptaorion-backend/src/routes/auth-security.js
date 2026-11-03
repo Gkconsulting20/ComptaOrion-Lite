@@ -26,15 +26,9 @@ router.post('/login', async (req, res) => {
       .where(eq(users.email, emailLower));
 
     if (!user) {
-      await db.insert(auditConnexions).values({
-        userId: null,
-        enterpriseId: null,
-        type: 'failed_login',
-        ipAddress,
-        userAgent,
-        statut: 'failed',
-        raison: 'Email non trouvé'
-      });
+      // audit_connexions requires both user_id and enterprise_id; an unknown
+      // email has neither, so return the same generic login failure without
+      // attempting an invalid audit insert.
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
 
