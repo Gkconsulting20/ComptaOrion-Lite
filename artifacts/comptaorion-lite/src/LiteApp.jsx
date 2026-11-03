@@ -58,7 +58,7 @@ function LiteShell({ user, onLogout }) {
       try { await api.post(item.endpoint, item.payload, { headers: { 'X-Idempotency-Key': item.opId } }); await removeQueue(scope, item.opId); }
       catch (error) { if (error?.status === 409) setToast(t('Synchronisation en cours côté serveur, nouvelle tentative plus tard.', 'Server is still processing this operation; it will be retried later.')); break; }
     }
-    refreshQueue();
+    await refreshQueue();
   }, [refreshQueue, scope, settings.language]);
   const write = useCallback(async (endpoint, payload, optimistic, existingOperationId) => {
     const opId = existingOperationId || operationId();
@@ -140,7 +140,7 @@ function LiteShell({ user, onLogout }) {
     };
     return { ...data, invoices, expenses, daySummary };
   }, [data, pendingItems, t]);
-  useEffect(() => { load(); refreshQueue(); const on = () => { setOnline(true); syncQueue(); load(); }; const off = () => setOnline(false); const install = (e) => { e.preventDefault(); setInstallPrompt(e); }; window.addEventListener('online', on); window.addEventListener('offline', off); window.addEventListener('beforeinstallprompt', install); return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); window.removeEventListener('beforeinstallprompt', install); }; }, [load, refreshQueue, syncQueue]);
+  useEffect(() => { load(); refreshQueue(); const on = async () => { setOnline(true); await syncQueue(); await load(); }; const off = () => setOnline(false); const install = (e) => { e.preventDefault(); setInstallPrompt(e); }; window.addEventListener('online', on); window.addEventListener('offline', off); window.addEventListener('beforeinstallprompt', install); return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); window.removeEventListener('beforeinstallprompt', install); }; }, [load, refreshQueue, syncQueue]);
   useEffect(() => { if (toast) { const id = setTimeout(() => setToast(''), 3200); return () => clearTimeout(id); } }, [toast]);
   const logout = () => { localStorage.removeItem('token'); localStorage.removeItem('refreshToken'); localStorage.removeItem('user'); onLogout?.(); };
   const saveSettings = (next) => { setSettings(next); localStorage.setItem(`lite-settings-${user.id || user.entrepriseId}`, JSON.stringify(next)); setToast(t('Préférences enregistrées', 'Preferences saved')); };
