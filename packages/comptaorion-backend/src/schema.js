@@ -109,6 +109,8 @@ export const clients = pgTable('clients', {
   categorieClient: varchar('categorie_client', { length: 100 }).default('standard'),
   limiteCredit: decimal('limite_credit', { precision: 15, scale: 2 }).default('0'),
   delaiPaiement: integer('delai_paiement').default(30), // jours
+  escomptePourcentage: decimal('escompte_pourcentage', { precision: 5, scale: 2 }).notNull().default('0'),
+  escompteDelaiJours: integer('escompte_delai_jours').notNull().default(0),
   remise: decimal('remise', { precision: 5, scale: 2 }).default('0'), // %
   soldeDu: decimal('solde_du', { precision: 15, scale: 2 }).default('0'),
   echeancesPersonnalisees: jsonb('echeances_personnalisees'), // [{jours: 30, pourcentage: 100}]
@@ -136,6 +138,8 @@ export const fournisseurs = pgTable('fournisseurs', {
   adresse: text('adresse'),
   categorie: varchar('categorie', { length: 100 }),
   delaiPaiement: integer('delai_paiement').default(30),
+  escomptePourcentage: decimal('escompte_pourcentage', { precision: 5, scale: 2 }).notNull().default('0'),
+  escompteDelaiJours: integer('escompte_delai_jours').notNull().default(0),
   compteBancaire: varchar('compte_bancaire', { length: 100 }),
   banque: varchar('banque', { length: 255 }),
   soldeDu: decimal('solde_du', { precision: 15, scale: 2 }).default('0'),
@@ -219,6 +223,7 @@ export const paiementsFournisseurs = pgTable('paiements_fournisseurs', {
   factureId: integer('facture_id').references(() => facturesAchat.id),
   fournisseurId: integer('fournisseur_id').references(() => fournisseurs.id),
   montant: decimal('montant', { precision: 15, scale: 2 }).notNull(),
+  escompteMontant: decimal('escompte_montant', { precision: 15, scale: 2 }).notNull().default('0'),
   modePaiement: varchar('mode_paiement', { length: 100 }),
   reference: varchar('reference', { length: 255 }),
   datePaiement: date('date_paiement').defaultNow(),
@@ -591,6 +596,7 @@ export const paiements = pgTable('paiements', {
   factureId: integer('facture_id').references(() => factures.id),
   clientId: integer('client_id').references(() => clients.id),
   montant: decimal('montant', { precision: 15, scale: 2 }).notNull(),
+  escompteMontant: decimal('escompte_montant', { precision: 15, scale: 2 }).notNull().default('0'),
   modePaiement: varchar('mode_paiement', { length: 100 }), // espèces, virement, mobile money, etc.
   numeroCheque: varchar('numero_cheque', { length: 100 }),
   banqueCheque: varchar('banque_cheque', { length: 255 }),
@@ -1656,6 +1662,26 @@ export const retoursMarchandisesItems = pgTable('retours_marchandises_items', {
   remise: decimal('remise', { precision: 5, scale: 2 }).notNull().default('0'),
   totalLigne: decimal('total_ligne', { precision: 15, scale: 2 }).notNull(),
   reintegrerStock: boolean('reintegrer_stock').notNull().default(false),
+});
+
+// Notes d'ajustement sans retour physique de marchandise.
+export const ajustementsTiers = pgTable('ajustements_tiers', {
+  id: serial('id').primaryKey(),
+  entrepriseId: integer('entreprise_id').references(() => entreprises.id).notNull(),
+  type: varchar('type', { length: 30 }).notNull(), // debit_client, credit_fournisseur
+  numero: varchar('numero', { length: 100 }).notNull(),
+  factureId: integer('facture_id').references(() => factures.id),
+  factureAchatId: integer('facture_achat_id').references(() => facturesAchat.id),
+  clientId: integer('client_id').references(() => clients.id),
+  fournisseurId: integer('fournisseur_id').references(() => fournisseurs.id),
+  dateNote: date('date_note', { mode: 'string' }).notNull(),
+  totalHT: decimal('total_ht', { precision: 15, scale: 2 }).notNull(),
+  totalTVA: decimal('total_tva', { precision: 15, scale: 2 }).notNull(),
+  totalTTC: decimal('total_ttc', { precision: 15, scale: 2 }).notNull(),
+  compteAjustementId: integer('compte_ajustement_id').references(() => comptesComptables.id).notNull(),
+  motif: text('motif').notNull(),
+  userId: integer('user_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Liste des devises supportées

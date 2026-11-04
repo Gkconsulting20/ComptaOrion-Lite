@@ -14,6 +14,7 @@ import {
   transactionsTresorerie,
 } from '../schema.js';
 import { createEcritureComptable, createEcriturePaiementFournisseur, getCompteByNumero } from '../services/comptabiliteService.js';
+import { calculateEarlyPaymentDiscount } from '../services/liteAccountingRules.js';
 
 const router = express.Router();
 const round2 = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -32,6 +33,9 @@ function presentSupplier(supplier) {
     email: supplier.email,
     adresse: supplier.adresse,
     soldeDu: Number(supplier.soldeDu || 0),
+    delaiPaiement: Number(supplier.delaiPaiement || 30),
+    escomptePourcentage: Number(supplier.escomptePourcentage || 0),
+    escompteDelaiJours: Number(supplier.escompteDelaiJours || 0),
     actif: supplier.actif !== false,
   };
 }
@@ -414,6 +418,17 @@ router.post('/achats/:id/paiement', async (req, res) => {
         eq(fournisseurs.entrepriseId, req.entrepriseId),
       )).limit(1);
       if (!supplier) throw Object.assign(new Error('Fournisseur introuvable'), { status: 404 });
+      const discount = calculateEarlyPaymentDiscount({
+        balance: due,
+        paymentAmount: amount,
+        invoiceDate: String(invoice.dateFacture || ''),
+        paymentDate: String(datePaiement),
+        percentage: supplier.escomptePourcentage,
+        discountDays: supplier.escompteDelaiJours,
+      });
+      const escompteMontant = discount.discountAmount;
+      const montantRegle = discount.settledAmount;
+      if (montantRegle > due + 0.01) throw Object.assign(new Error('Le règlement et l’escompte dépassent le solde dû'), { status: 400 });
 
       if (compteBancaireId) {
         const [bank] = await tx.select().from(comptesBancaires).where(and(
@@ -449,15 +464,16 @@ router.post('/achats/:id/paiement', async (req, res) => {
         factureId: invoiceId,
         fournisseurId: supplier.id,
         montant: amount.toFixed(2),
+        escompteMontant: escompteMontant.toFixed(2),
         modePaiement,
         reference: req.body?.reference ? String(req.body.reference).slice(0, 255) : null,
         datePaiement,
         notes: req.body?.notes ? String(req.body.notes).slice(0, 2000) : null,
         userId: req.user.id,
       }).returning();
-      const newDue = Math.max(0, round2(due - amount));
+      const newDue = Math.max(0, round2(due - montantRegle));
       await tx.update(facturesAchat).set({
-        montantPaye: (Number(invoice.montantPaye || 0) + amount).toFixed(2),
+        montantPaye: (Number(invoice.montantPaye || 0) + montantRegle).toFixed(2),
         soldeRestant: newDue.toFixed(2),
         updatedAt: new Date(),
       }).where(and(
@@ -465,7 +481,7 @@ router.post('/achats/:id/paiement', async (req, res) => {
         eq(facturesAchat.entrepriseId, req.entrepriseId),
       ));
       await tx.update(fournisseurs).set({
-        soldeDu: sql`COALESCE(${fournisseurs.soldeDu}, 0) - ${amount.toFixed(2)}`,
+        soldeDu: sql`COALESCE(${fournisseurs.soldeDu}, 0) - ${montantRegle.toFixed(2)}`,
         updatedAt: new Date(),
       }).where(and(
         eq(fournisseurs.id, supplier.id),
@@ -479,12 +495,13 @@ router.post('/achats/:id/paiement', async (req, res) => {
         fournisseurNom: supplier.raisonSociale,
         fournisseurCompteId: supplier.compteComptableId,
         montant: amount,
+        escompteMontant,
         modePaiement,
         compteBancaireId,
         executor: tx,
       });
       if (!entry) throw new Error('Écriture comptable du règlement fournisseur non générée');
-      return { paiement: created, soldeRestant: newDue };
+      return { paiement: created, soldeRestant: newDue, escompteMontant, escompteApplique: discount.discountApplied };
     });
     return res.status(201).json({ success: true, message: 'Règlement fournisseur enregistré', data: payment });
   } catch (error) {

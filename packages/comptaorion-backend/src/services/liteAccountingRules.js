@@ -54,6 +54,129 @@ export function buildSupplierPaymentLines({ supplierAccountId, settlementAccount
   return lines;
 }
 
+export function buildCustomerPaymentLines({
+  settlementAccountId,
+  customerAccountId,
+  discountAccountId,
+  amount: cashValue,
+  discountAmount = 0,
+  modePaiement,
+  reference,
+}) {
+  const cash = amount(cashValue, 'Montant reçu');
+  const discount = amount(discountAmount, 'Escompte accordé');
+  const lines = [
+    accountLine(settlementAccountId, cash, 0, `Encaissement ${modePaiement} - ${reference}`),
+  ];
+  if (discount > 0) {
+    lines.push(accountLine(discountAccountId, discount, 0, `Escompte accordé ${reference}`));
+  }
+  lines.push(accountLine(customerAccountId, 0, cash + discount, `Règlement client ${reference}`));
+  assertBalancedJournalLines(lines);
+  return lines;
+}
+
+export function buildSupplierPaymentDiscountLines({
+  supplierAccountId,
+  settlementAccountId,
+  discountAccountId,
+  amount: cashValue,
+  discountAmount = 0,
+  modePaiement,
+  reference,
+}) {
+  const cash = amount(cashValue, 'Montant payé');
+  const discount = amount(discountAmount, 'Escompte obtenu');
+  const lines = [
+    accountLine(supplierAccountId, cash + discount, 0, `Règlement fournisseur ${reference}`),
+    accountLine(settlementAccountId, 0, cash, `Décaissement ${modePaiement} - ${reference}`),
+  ];
+  if (discount > 0) {
+    lines.push(accountLine(discountAccountId, 0, discount, `Escompte obtenu ${reference}`));
+  }
+  assertBalancedJournalLines(lines);
+  return lines;
+}
+
+export function buildCustomerDebitNoteLines({
+  customerAccountId,
+  adjustmentAccountId,
+  vatAccountId,
+  totalHT,
+  totalTVA,
+  totalTTC,
+  reference,
+}) {
+  const ht = amount(totalHT, 'Montant HT');
+  const vat = amount(totalTVA, 'TVA');
+  const ttc = amount(totalTTC, 'Montant TTC');
+  const lines = [
+    accountLine(customerAccountId, ttc, 0, `Note de débit client ${reference}`),
+    accountLine(adjustmentAccountId, 0, ht, `Ajustement client ${reference}`),
+  ];
+  if (vat > 0) lines.push(accountLine(vatAccountId, 0, vat, `TVA note de débit client ${reference}`));
+  assertBalancedJournalLines(lines);
+  return lines;
+}
+
+export function buildSupplierCreditNoteLines({
+  supplierAccountId,
+  adjustmentAccountId,
+  vatAccountId,
+  totalHT,
+  totalTVA,
+  totalTTC,
+  reference,
+}) {
+  const ht = amount(totalHT, 'Montant HT');
+  const vat = amount(totalTVA, 'TVA');
+  const ttc = amount(totalTTC, 'Montant TTC');
+  const lines = [
+    accountLine(supplierAccountId, ttc, 0, `Note de crédit fournisseur ${reference}`),
+    accountLine(adjustmentAccountId, 0, ht, `Ajustement qualité fournisseur ${reference}`),
+  ];
+  if (vat > 0) lines.push(accountLine(vatAccountId, 0, vat, `TVA note de crédit fournisseur ${reference}`));
+  assertBalancedJournalLines(lines);
+  return lines;
+}
+
+export function calculateEarlyPaymentDiscount({
+  balance,
+  paymentAmount,
+  invoiceDate,
+  paymentDate,
+  percentage,
+  discountDays,
+}) {
+  const due = amount(balance, 'Solde facture');
+  const cash = amount(paymentAmount, 'Montant payé');
+  const rate = Number(percentage || 0);
+  const days = Number(discountDays || 0);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100
+    || !Number.isInteger(days) || days < 0) {
+    throw new Error('Conditions d’escompte ou dates invalides');
+  }
+  if (rate === 0 || days === 0 || due <= 0 || cash >= due) {
+    return { discountAmount: 0, settledAmount: cash, discountApplied: false };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(invoiceDate || ''))
+    || !/^\d{4}-\d{2}-\d{2}$/.test(String(paymentDate || ''))) {
+    throw new Error('Dates d’escompte invalides');
+  }
+  const start = new Date(`${invoiceDate}T00:00:00.000Z`);
+  const payment = new Date(`${paymentDate}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(payment.getTime()) || payment < start) {
+    return { discountAmount: 0, settledAmount: cash, discountApplied: false };
+  }
+  const cutoff = new Date(start.getTime() + days * 86400000);
+  const expectedDiscount = amount(due * rate / 100, 'Escompte calculé');
+  const expectedCash = amount(due - expectedDiscount, 'Paiement net');
+  if (payment <= cutoff && expectedDiscount > 0 && Math.abs(cash - expectedCash) <= 0.01) {
+    return { discountAmount: expectedDiscount, settledAmount: due, discountApplied: true };
+  }
+  return { discountAmount: 0, settledAmount: cash, discountApplied: false };
+}
+
 export function buildCustomerReturnLines({
   salesAccountId,
   vatAccountId,

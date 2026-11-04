@@ -1,10 +1,12 @@
 import express from 'express';
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, like, sql } from 'drizzle-orm';
 import { db } from '../db.js';
 import {
   clients,
   comptesBancaires,
+  comptesComptables,
+  ajustementsTiers,
   factures,
   factureItems,
   factureAchatItems,
@@ -21,9 +23,12 @@ import {
 } from '../schema.js';
 import { createEcritureComptable, getCompteByNumero } from '../services/comptabiliteService.js';
 import {
+  buildCustomerDebitNoteLines,
   buildChequeDepositLines,
   buildCustomerReturnLines,
+  buildSupplierCreditNoteLines,
   buildSupplierReturnLines,
+  calculateEarlyPaymentDiscount,
 } from '../services/liteAccountingRules.js';
 import { buildThirdPartyLedger } from '../services/accountLedger.js';
 
@@ -307,6 +312,249 @@ async function createReturn({ req, type, sourceId, body }) {
   });
 }
 
+function validateDiscountTerms(body) {
+  const escomptePourcentage = Number(body?.escomptePourcentage);
+  const escompteDelaiJours = Number(body?.escompteDelaiJours);
+  const delaiPaiement = Number(body?.delaiPaiement);
+  if (!Number.isFinite(escomptePourcentage) || escomptePourcentage < 0 || escomptePourcentage > 100
+    || !Number.isInteger(escompteDelaiJours) || escompteDelaiJours < 0 || escompteDelaiJours > 366
+    || !Number.isInteger(delaiPaiement) || delaiPaiement < 0 || delaiPaiement > 3660
+    || (escomptePourcentage > 0 && escompteDelaiJours === 0)) {
+    throw fail('Pourcentage, délai d’escompte ou délai net invalide', 400);
+  }
+  return {
+    escomptePourcentage: escomptePourcentage.toFixed(2),
+    escompteDelaiJours,
+    delaiPaiement,
+  };
+}
+
+async function createAdjustmentNote({ req, type, sourceId, body }) {
+  const customerNote = type === 'debit_client';
+  const dateNote = body?.dateNote || new Date().toISOString().slice(0, 10);
+  const totalHT = round2(Number(body?.totalHT));
+  const totalTVA = round2(Number(body?.totalTVA || 0));
+  const totalTTC = round2(totalHT + totalTVA);
+  const compteAjustementId = Number(body?.compteAjustementId);
+  const motif = String(body?.motif || '').trim().slice(0, 500);
+  if (!validDate(dateNote) || !Number.isFinite(totalHT) || totalHT <= 0
+    || !Number.isFinite(totalTVA) || totalTVA < 0
+    || !Number.isInteger(compteAjustementId) || compteAjustementId < 1
+    || motif.length < 3) {
+    throw fail('Date, montants, compte d’ajustement et motif valides requis');
+  }
+
+  return db.transaction(async (tx) => {
+    const sourceTable = customerNote ? factures : facturesAchat;
+    const sourceColumn = customerNote ? factures.id : facturesAchat.id;
+    await tx.execute(sql`SELECT id FROM ${sourceTable}
+      WHERE id = ${sourceId} AND entreprise_id = ${req.entrepriseId}
+      FOR UPDATE`);
+    const [invoice] = await tx.select().from(sourceTable).where(and(
+      eq(sourceColumn, sourceId),
+      eq(sourceTable.entrepriseId, req.entrepriseId),
+    )).limit(1);
+    if (!invoice) throw fail('Facture introuvable', 404);
+    if (dateNote < String(invoice.dateFacture || '')) throw fail('La date de la note ne peut pas précéder la facture');
+
+    const accountPrefix = customerNote ? '7%' : '6%';
+    const [adjustmentAccount] = await tx.select().from(comptesComptables).where(and(
+      eq(comptesComptables.id, compteAjustementId),
+      eq(comptesComptables.entrepriseId, req.entrepriseId),
+      eq(comptesComptables.actif, true),
+      like(comptesComptables.numero, accountPrefix),
+    )).limit(1);
+    if (!adjustmentAccount) throw fail('Compte d’ajustement invalide pour ce type de note', 400);
+
+    const [thirdParty] = customerNote
+      ? await tx.select().from(clients).where(and(
+        eq(clients.id, invoice.clientId),
+        eq(clients.entrepriseId, req.entrepriseId),
+      )).limit(1)
+      : await tx.select().from(fournisseurs).where(and(
+        eq(fournisseurs.id, invoice.fournisseurId),
+        eq(fournisseurs.entrepriseId, req.entrepriseId),
+      )).limit(1);
+    if (!thirdParty) throw fail('Compte client ou fournisseur introuvable', 404);
+
+    const totalTTC = round2(totalHT + totalTVA);
+    const number = `${customerNote ? 'NDCL' : 'NCFR'}-${dateNote.replaceAll('-', '')}-${randomUUID().slice(0, 8).toUpperCase()}`;
+    const [note] = await tx.insert(ajustementsTiers).values({
+      entrepriseId: req.entrepriseId,
+      type,
+      numero: number,
+      factureId: customerNote ? sourceId : null,
+      factureAchatId: customerNote ? null : sourceId,
+      clientId: customerNote ? thirdParty.id : null,
+      fournisseurId: customerNote ? null : thirdParty.id,
+      dateNote,
+      totalHT: totalHT.toFixed(2),
+      totalTVA: totalTVA.toFixed(2),
+      totalTTC: totalTTC.toFixed(2),
+      compteAjustementId,
+      motif,
+      userId: req.user.id,
+    }).returning();
+
+    if (customerNote) {
+      const newBalance = round2(Number(invoice.soldeRestant || 0) + totalTTC);
+      await tx.update(factures).set({
+        soldeRestant: newBalance.toFixed(2),
+        statut: invoice.statut === 'payee' ? 'envoyee' : invoice.statut,
+        updatedAt: new Date(),
+      }).where(and(eq(factures.id, sourceId), eq(factures.entrepriseId, req.entrepriseId)));
+      const customerAccount = await requiredAccount(req.entrepriseId, '411', tx);
+      const vatAccount = totalTVA > 0 ? await requiredAccount(req.entrepriseId, '443', tx) : null;
+      const lines = buildCustomerDebitNoteLines({
+        customerAccountId: customerAccount.id,
+        adjustmentAccountId: adjustmentAccount.id,
+        vatAccountId: vatAccount?.id,
+        totalHT,
+        totalTVA,
+        totalTTC,
+        reference: number,
+      });
+      const entry = await createEcritureComptable({
+        entrepriseId: req.entrepriseId,
+        journalCode: 'VT',
+        journalNom: 'Journal des Ventes',
+        journalType: 'ventes',
+        dateEcriture: dateNote,
+        libelle: `Note de débit client ${number}`,
+        numeroPiece: number,
+        lignes: lines,
+        valide: true,
+        executor: tx,
+      });
+      if (!entry) throw new Error('Écriture de la note de débit client non générée');
+      return { note, soldeRestant: newBalance };
+    }
+
+    const newBalance = Math.max(0, round2(Number(invoice.soldeRestant || 0) - totalTTC));
+    await tx.update(facturesAchat).set({
+      soldeRestant: newBalance.toFixed(2),
+      updatedAt: new Date(),
+    }).where(and(eq(facturesAchat.id, sourceId), eq(facturesAchat.entrepriseId, req.entrepriseId)));
+    await tx.update(fournisseurs).set({
+      soldeDu: sql`COALESCE(${fournisseurs.soldeDu}, 0) - ${totalTTC.toFixed(2)}`,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(fournisseurs.id, thirdParty.id),
+      eq(fournisseurs.entrepriseId, req.entrepriseId),
+    ));
+    const supplierAccount = await requiredAccount(req.entrepriseId, '401', tx);
+    const vatAccount = totalTVA > 0 ? await requiredAccount(req.entrepriseId, '445', tx) : null;
+    const lines = buildSupplierCreditNoteLines({
+      supplierAccountId: supplierAccount.id,
+      adjustmentAccountId: adjustmentAccount.id,
+      vatAccountId: vatAccount?.id,
+      totalHT,
+      totalTVA,
+      totalTTC,
+      reference: number,
+    });
+    const entry = await createEcritureComptable({
+      entrepriseId: req.entrepriseId,
+      journalCode: 'AC',
+      journalNom: 'Journal des Achats',
+      journalType: 'achats',
+      dateEcriture: dateNote,
+      libelle: `Note de crédit fournisseur ${number}`,
+      numeroPiece: number,
+      lignes: lines,
+      valide: true,
+      executor: tx,
+    });
+    if (!entry) throw new Error('Écriture de la note de crédit fournisseur non générée');
+    return { note, soldeRestant: newBalance };
+  });
+}
+
+router.get('/comptes-comptables-ajustement', async (req, res) => {
+  const prefix = req.query.type === 'client' ? '7%' : req.query.type === 'fournisseur' ? '6%' : null;
+  if (!prefix) return res.status(400).json({ success: false, message: 'Type client ou fournisseur requis' });
+  try {
+    const accounts = await db.select({
+      id: comptesComptables.id,
+      numero: comptesComptables.numero,
+      nom: comptesComptables.nom,
+    }).from(comptesComptables).where(and(
+      eq(comptesComptables.entrepriseId, req.entrepriseId),
+      eq(comptesComptables.actif, true),
+      like(comptesComptables.numero, prefix),
+    )).orderBy(asc(comptesComptables.numero));
+    return res.json({ success: true, data: accounts });
+  } catch {
+    return res.status(500).json({ success: false, message: 'Impossible de charger les comptes d’ajustement' });
+  }
+});
+
+router.put('/clients/:id/conditions-escompte', async (req, res) => {
+  const clientId = Number(req.params.id);
+  if (!Number.isInteger(clientId) || clientId < 1) return res.status(400).json({ success: false, message: 'Client invalide' });
+  try {
+    const terms = validateDiscountTerms(req.body);
+    const [updated] = await db.update(clients).set({ ...terms, updatedAt: new Date() }).where(and(
+      eq(clients.id, clientId),
+      eq(clients.entrepriseId, req.entrepriseId),
+    )).returning();
+    if (!updated) return res.status(404).json({ success: false, message: 'Client introuvable' });
+    return res.json({ success: true, data: {
+      id: updated.id,
+      nom: updated.nom,
+      escomptePourcentage: Number(updated.escomptePourcentage),
+      escompteDelaiJours: updated.escompteDelaiJours,
+      delaiPaiement: updated.delaiPaiement,
+    } });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Impossible de mettre à jour les conditions d’escompte' });
+  }
+});
+
+router.put('/fournisseurs/:id/conditions-escompte', async (req, res) => {
+  const supplierId = Number(req.params.id);
+  if (!Number.isInteger(supplierId) || supplierId < 1) return res.status(400).json({ success: false, message: 'Fournisseur invalide' });
+  try {
+    const terms = validateDiscountTerms(req.body);
+    const [updated] = await db.update(fournisseurs).set({ ...terms, updatedAt: new Date() }).where(and(
+      eq(fournisseurs.id, supplierId),
+      eq(fournisseurs.entrepriseId, req.entrepriseId),
+    )).returning();
+    if (!updated) return res.status(404).json({ success: false, message: 'Fournisseur introuvable' });
+    return res.json({ success: true, data: {
+      id: updated.id,
+      raisonSociale: updated.raisonSociale,
+      escomptePourcentage: Number(updated.escomptePourcentage),
+      escompteDelaiJours: updated.escompteDelaiJours,
+      delaiPaiement: updated.delaiPaiement,
+    } });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Impossible de mettre à jour les conditions d’escompte' });
+  }
+});
+
+router.post('/factures/:id/notes-debit', async (req, res) => {
+  const invoiceId = Number(req.params.id);
+  if (!Number.isInteger(invoiceId) || invoiceId < 1) return res.status(400).json({ success: false, message: 'Facture invalide' });
+  try {
+    const data = await createAdjustmentNote({ req, type: 'debit_client', sourceId: invoiceId, body: req.body });
+    return res.status(201).json({ success: true, message: 'Note de débit client créée sans mouvement de stock', data });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Impossible de créer la note de débit client' });
+  }
+});
+
+router.post('/achats/:id/notes-credit', async (req, res) => {
+  const invoiceId = Number(req.params.id);
+  if (!Number.isInteger(invoiceId) || invoiceId < 1) return res.status(400).json({ success: false, message: 'Facture fournisseur invalide' });
+  try {
+    const data = await createAdjustmentNote({ req, type: 'credit_fournisseur', sourceId: invoiceId, body: req.body });
+    return res.status(201).json({ success: true, message: 'Note de crédit fournisseur créée sans mouvement de stock', data });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Impossible de créer la note de crédit fournisseur' });
+  }
+});
+
 router.get('/cheques-clients', async (req, res) => {
   try {
     const rows = await db.select({
@@ -449,7 +697,7 @@ router.get('/clients/:id/compte', async (req, res) => {
     )).limit(1);
     if (!client) return res.status(404).json({ success: false, message: 'Client introuvable' });
 
-    const [invoices, receipts, credits] = await Promise.all([
+    const [invoices, receipts, credits, adjustments] = await Promise.all([
       db.select().from(factures).where(and(
         eq(factures.entrepriseId, req.entrepriseId),
         eq(factures.clientId, clientId),
@@ -463,12 +711,18 @@ router.get('/clients/:id/compte', async (req, res) => {
         eq(retoursMarchandises.clientId, clientId),
         eq(retoursMarchandises.type, 'client'),
       )),
+      db.select().from(ajustementsTiers).where(and(
+        eq(ajustementsTiers.entrepriseId, req.entrepriseId),
+        eq(ajustementsTiers.clientId, clientId),
+        eq(ajustementsTiers.type, 'debit_client'),
+      )),
     ]);
     const ledger = buildThirdPartyLedger({
       partyType: 'client',
       invoices,
       payments: receipts,
       returns: credits,
+      adjustments,
     });
     return res.json({
       success: true,
@@ -488,7 +742,7 @@ router.get('/fournisseurs/:id/compte', async (req, res) => {
     )).limit(1);
     if (!supplier) return res.status(404).json({ success: false, message: 'Fournisseur introuvable' });
 
-    const [invoices, payments, returns] = await Promise.all([
+    const [invoices, payments, returns, adjustments] = await Promise.all([
       db.select().from(facturesAchat).where(and(
         eq(facturesAchat.entrepriseId, req.entrepriseId),
         eq(facturesAchat.fournisseurId, supplierId),
@@ -502,12 +756,18 @@ router.get('/fournisseurs/:id/compte', async (req, res) => {
         eq(retoursMarchandises.fournisseurId, supplierId),
         eq(retoursMarchandises.type, 'fournisseur'),
       )),
+      db.select().from(ajustementsTiers).where(and(
+        eq(ajustementsTiers.entrepriseId, req.entrepriseId),
+        eq(ajustementsTiers.fournisseurId, supplierId),
+        eq(ajustementsTiers.type, 'credit_fournisseur'),
+      )),
     ]);
     const ledger = buildThirdPartyLedger({
       partyType: 'fournisseur',
       invoices,
       payments,
       returns,
+      adjustments,
     });
     return res.json({
       success: true,

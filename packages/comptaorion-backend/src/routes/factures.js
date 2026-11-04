@@ -4,6 +4,7 @@ import { factures, factureItems, paiements, clients, produits, transactionsTreso
 import { eq, and, desc, sql } from 'drizzle-orm';
 import emailService from '../services/emailService.js';
 import { createEcritureComptable, createEcritureFactureVente, createEcriturePaiementClient, getCompteByNumero } from '../services/comptabiliteService.js';
+import { calculateEarlyPaymentDiscount } from '../services/liteAccountingRules.js';
 import { claimIdempotentOperation } from '../middleware/idempotency.js';
 
 const router = express.Router();
@@ -542,11 +543,29 @@ router.post('/:id/paiement', async (req, res) => {
       }
 
       const jour = datePaiement || new Date().toISOString().slice(0, 10);
+      const [clientInfo] = await tx.select().from(clients).where(and(
+        eq(clients.id, factureData.clientId),
+        eq(clients.entrepriseId, req.entrepriseId),
+      )).limit(1);
+      const discount = calculateEarlyPaymentDiscount({
+        balance: soldeRestant,
+        paymentAmount: montantPaiement,
+        invoiceDate: String(factureData.dateFacture || ''),
+        paymentDate: String(jour),
+        percentage: clientInfo?.escomptePourcentage,
+        discountDays: clientInfo?.escompteDelaiJours,
+      });
+      const escompteMontant = discount.discountAmount;
+      const montantRegle = discount.settledAmount;
+      if (montantRegle > soldeRestant + 0.01) {
+        throw Object.assign(new Error('Le règlement et l’escompte dépassent le solde dû'), { status: 400 });
+      }
       const [newPaiement] = await tx.insert(paiements).values({
         entrepriseId: req.entrepriseId,
         factureId,
         clientId: factureData.clientId,
         montant: montantPaiement.toFixed(2),
+        escompteMontant: escompteMontant.toFixed(2),
         modePaiement,
         numeroCheque: modePaiement === 'cheque' ? String(numeroCheque).trim().slice(0, 100) : null,
         banqueCheque: modePaiement === 'cheque' && banqueCheque ? String(banqueCheque).trim().slice(0, 255) : null,
@@ -557,8 +576,8 @@ router.post('/:id/paiement', async (req, res) => {
         userId: req.user.id,
       }).returning();
 
-      const nouveauMontantPaye = Number(factureData.montantPaye || 0) + montantPaiement;
-      const nouveauSoldeRestant = Math.max(0, soldeRestant - montantPaiement);
+      const nouveauMontantPaye = Number(factureData.montantPaye || 0) + montantRegle;
+      const nouveauSoldeRestant = Math.max(0, soldeRestant - montantRegle);
       const nouveauStatut = nouveauSoldeRestant <= 0.01 ? 'payee' : 'envoyee';
       await tx.update(factures).set({
         montantPaye: nouveauMontantPaye.toFixed(2),
@@ -598,10 +617,6 @@ router.post('/:id/paiement', async (req, res) => {
         ));
       }
 
-      const [clientInfo] = await tx.select().from(clients).where(and(
-        eq(clients.id, factureData.clientId),
-        eq(clients.entrepriseId, req.entrepriseId),
-      )).limit(1);
       const entry = await createEcriturePaiementClient({
         entrepriseId: req.entrepriseId,
         reference: reference || `PAI-${newPaiement.id}`,
@@ -609,6 +624,7 @@ router.post('/:id/paiement', async (req, res) => {
         clientNom: clientInfo?.nom || 'Client',
         clientCompteId: clientInfo?.compteComptableId,
         montant: montantPaiement,
+        escompteMontant,
         modePaiement,
         compteBancaireId: compteBancaireId ? Number(compteBancaireId) : null,
         executor: tx,
@@ -616,6 +632,8 @@ router.post('/:id/paiement', async (req, res) => {
       if (!entry) throw new Error('Écriture comptable du paiement non générée; le paiement a été annulé');
       return {
         paiement: newPaiement,
+        escompteMontant,
+        escompteApplique: discount.discountApplied,
         facture: {
           montantPaye: nouveauMontantPaye.toFixed(2),
           soldeRestant: nouveauSoldeRestant.toFixed(2),

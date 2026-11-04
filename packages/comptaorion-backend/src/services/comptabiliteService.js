@@ -3,8 +3,8 @@ import { journaux, ecritures, lignesEcritures, comptesComptables, parametresComp
 import { eq, and, sql } from 'drizzle-orm';
 import {
   assertBalancedJournalLines,
-  buildCustomerReceiptLines,
-  buildSupplierPaymentLines,
+  buildCustomerPaymentLines,
+  buildSupplierPaymentDiscountLines,
   getCustomerReceiptAccountNumber,
 } from './liteAccountingRules.js';
 
@@ -389,6 +389,7 @@ export async function createEcriturePaiementFournisseur(params) {
     montant,
     modePaiement,
     compteBancaireId,
+    escompteMontant = 0,
     executor = db
   } = params;
 
@@ -399,12 +400,16 @@ export async function createEcriturePaiementFournisseur(params) {
   const compteTresorerie = modePaiement === 'especes' 
     ? await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CAISSE, executor)
     : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.BANQUE, executor);
-
-  const ecrituresLignes = compte401 && compteTresorerie
-    ? buildSupplierPaymentLines({
+  const compteEscompte = Number(escompteMontant) > 0
+    ? await getCompteByNumero(entrepriseId, '765', executor)
+    : null;
+  const ecrituresLignes = compte401 && compteTresorerie && (Number(escompteMontant) <= 0 || compteEscompte)
+    ? buildSupplierPaymentDiscountLines({
       supplierAccountId: compte401.id,
       settlementAccountId: compteTresorerie.id,
+      discountAccountId: compteEscompte?.id,
       amount: montant,
+      discountAmount: escompteMontant,
       modePaiement,
       reference,
     })
@@ -439,6 +444,7 @@ export async function createEcriturePaiementClient(params) {
     montant,
     modePaiement,
     compteBancaireId,
+    escompteMontant = 0,
     executor = db
   } = params;
 
@@ -448,12 +454,16 @@ export async function createEcriturePaiementClient(params) {
   const compte411 = clientCompteId ? await getCompteById(clientCompteId, executor) : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CLIENTS, executor);
   const compteNumero = getCustomerReceiptAccountNumber(modePaiement);
   const compteTresorerie = await getCompteByNumero(entrepriseId, compteNumero, executor);
-
-  const ecrituresLignes = compteTresorerie && compte411
-    ? buildCustomerReceiptLines({
+  const compteEscompte = Number(escompteMontant) > 0
+    ? await getCompteByNumero(entrepriseId, '665', executor)
+    : null;
+  const ecrituresLignes = compteTresorerie && compte411 && (Number(escompteMontant) <= 0 || compteEscompte)
+    ? buildCustomerPaymentLines({
       settlementAccountId: compteTresorerie.id,
       customerAccountId: compte411.id,
+      discountAccountId: compteEscompte?.id,
       amount: montant,
+      discountAmount: escompteMontant,
       modePaiement,
       reference,
     })
