@@ -103,8 +103,43 @@ export async function createEcritureComptable(params) {
   const journal = await getOrCreateJournal(entrepriseId, journalCode, journalNom, journalType, executor);
   const numeroEcriture = await generateNumeroEcriture(entrepriseId, journalCode, executor);
 
-  const totalDebit = lignes.reduce((sum, l) => sum + parseFloat(l.debit || 0), 0);
-  const totalCredit = lignes.reduce((sum, l) => sum + parseFloat(l.credit || 0), 0);
+  if (!Array.isArray(lignes) || lignes.length < 2) {
+    throw new Error('Une écriture comptable doit contenir au moins deux lignes');
+  }
+
+  const lignesResolues = [];
+  for (const ligne of lignes) {
+    let compteId = ligne.compteComptableId;
+    if (!compteId && ligne.numeroCompte) {
+      const compte = await getCompteByNumero(entrepriseId, ligne.numeroCompte, executor);
+      compteId = compte?.id;
+    }
+    if (!compteId) {
+      throw new Error(`Compte comptable introuvable pour la ligne « ${ligne.libelle || libelle} »`);
+    }
+
+    const [compteValide] = await executor.select({ id: comptesComptables.id })
+      .from(comptesComptables)
+      .where(and(
+        eq(comptesComptables.id, Number(compteId)),
+        eq(comptesComptables.entrepriseId, entrepriseId),
+      ))
+      .limit(1);
+    if (!compteValide) {
+      throw new Error(`Le compte comptable ${compteId} n’appartient pas à cette entreprise`);
+    }
+
+    const debit = Number(ligne.debit || 0);
+    const credit = Number(ligne.credit || 0);
+    if (!Number.isFinite(debit) || !Number.isFinite(credit) || debit < 0 || credit < 0
+      || (debit > 0 && credit > 0)) {
+      throw new Error('Montants de ligne comptable invalides');
+    }
+    lignesResolues.push({ ...ligne, compteComptableId: Number(compteId), debit, credit });
+  }
+
+  const totalDebit = lignesResolues.reduce((sum, l) => sum + l.debit, 0);
+  const totalCredit = lignesResolues.reduce((sum, l) => sum + l.credit, 0);
 
   if (Math.abs(totalDebit - totalCredit) > 0.01) {
     throw new Error(`Écriture non équilibrée: Débit=${totalDebit}, Crédit=${totalCredit}`);
@@ -122,28 +157,15 @@ export async function createEcritureComptable(params) {
     totalCredit: totalCredit.toFixed(2)
   }).returning();
 
-  for (const ligne of lignes) {
-    let compteId = ligne.compteComptableId;
-    
-    if (!compteId && ligne.numeroCompte) {
-      const compte = await getCompteByNumero(entrepriseId, ligne.numeroCompte, executor);
-      if (!compte) {
-        console.warn(`Compte ${ligne.numeroCompte} non trouvé pour entreprise ${entrepriseId}`);
-        continue;
-      }
-      compteId = compte.id;
-    }
-
-    if (compteId) {
-      await executor.insert(lignesEcritures).values({
-        ecritureId: ecriture.id,
-        compteComptableId: compteId,
-        debit: (parseFloat(ligne.debit) || 0).toFixed(2),
-        credit: (parseFloat(ligne.credit) || 0).toFixed(2),
-        libelle: ligne.libelle || libelle,
-        entrepriseId
-      });
-    }
+  for (const ligne of lignesResolues) {
+    await executor.insert(lignesEcritures).values({
+      ecritureId: ecriture.id,
+      compteComptableId: ligne.compteComptableId,
+      debit: ligne.debit.toFixed(2),
+      credit: ligne.credit.toFixed(2),
+      libelle: ligne.libelle || libelle,
+      entrepriseId
+    });
   }
 
   return ecriture;
@@ -363,16 +385,17 @@ export async function createEcriturePaiementFournisseur(params) {
     fournisseurCompteId,
     montant,
     modePaiement,
-    compteBancaireId
+    compteBancaireId,
+    executor = db
   } = params;
 
   const journalCode = modePaiement === 'especes' ? JOURNAL_CODES.CAISSE : JOURNAL_CODES.BANQUE;
   const journalNom = modePaiement === 'especes' ? 'Journal de Caisse' : 'Journal de Banque';
   
-  const compte401 = fournisseurCompteId ? await getCompteById(fournisseurCompteId) : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.FOURNISSEURS);
+  const compte401 = fournisseurCompteId ? await getCompteById(fournisseurCompteId, executor) : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.FOURNISSEURS, executor);
   const compteTresorerie = modePaiement === 'especes' 
-    ? await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CAISSE)
-    : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.BANQUE);
+    ? await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CAISSE, executor)
+    : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.BANQUE, executor);
 
   const ecrituresLignes = [];
 
@@ -408,7 +431,8 @@ export async function createEcriturePaiementFournisseur(params) {
     libelle: `Paiement ${fournisseurNom} - ${reference}`,
     numeroPiece: reference,
     lignes: ecrituresLignes,
-    valide: false
+    valide: false,
+    executor
   });
 }
 
@@ -429,9 +453,12 @@ export async function createEcriturePaiementClient(params) {
   const journalNom = modePaiement === 'especes' ? 'Journal de Caisse' : 'Journal de Banque';
 
   const compte411 = clientCompteId ? await getCompteById(clientCompteId, executor) : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CLIENTS, executor);
-  const compteTresorerie = modePaiement === 'especes' 
-    ? await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CAISSE, executor)
-    : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.BANQUE, executor);
+  const compteNumero = modePaiement === 'especes'
+    ? COMPTES_SYSCOHADA.CAISSE
+    : modePaiement === 'cheque'
+      ? '513'
+      : COMPTES_SYSCOHADA.BANQUE;
+  const compteTresorerie = await getCompteByNumero(entrepriseId, compteNumero, executor);
 
   const ecrituresLignes = [];
 

@@ -44,6 +44,10 @@ async function withApi(initial, run) {
         }
         if (table === 'lite_idempotency') return current[table].filter(row => row.idempotencyKey === query.params[0]);
         if (table === 'comptes_comptables') {
+          if (query.sql.includes('"comptes_comptables"."id" =')) {
+            const [id, entrepriseId] = query.params;
+            return current[table].filter(row => row.id === id && row.entrepriseId === entrepriseId);
+          }
           const prefix = query.params.find(value => typeof value === 'string' && value.endsWith('%'))?.slice(0, -1);
           return current[table].filter(row =>
             row.entrepriseId === query.params[0] && (!prefix || row.numero.startsWith(prefix))

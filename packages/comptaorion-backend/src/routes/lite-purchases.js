@@ -3,14 +3,17 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../db.js';
 import {
   comptesComptables,
+  comptesBancaires,
   entreprises,
   factureAchatItems,
   facturesAchat,
+  paiementsFournisseurs,
   fournisseurs,
   mouvementsStock,
   produits,
+  transactionsTresorerie,
 } from '../schema.js';
-import { createEcritureComptable, getCompteByNumero } from '../services/comptabiliteService.js';
+import { createEcritureComptable, createEcriturePaiementFournisseur, getCompteByNumero } from '../services/comptabiliteService.js';
 
 const router = express.Router();
 const round2 = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -377,6 +380,115 @@ router.post('/achats/lite-create', async (req, res) => {
       success: false,
       message: status < 500 ? error.message : 'Impossible d’enregistrer cet achat',
     });
+  }
+});
+
+router.post('/achats/:id/paiement', async (req, res) => {
+  const invoiceId = Number(req.params.id);
+  const montant = Number(req.body?.montant);
+  const modePaiement = String(req.body?.modePaiement || '');
+  const compteBancaireId = req.body?.compteBancaireId ? Number(req.body.compteBancaireId) : null;
+  const datePaiement = req.body?.datePaiement || new Date().toISOString().slice(0, 10);
+  if (!Number.isInteger(invoiceId) || invoiceId < 1 || !Number.isFinite(montant) || montant <= 0
+    || !['especes', 'virement', 'mobile_money', 'carte_bancaire'].includes(modePaiement)
+    || !validDate(datePaiement)) {
+    return res.status(400).json({ success: false, message: 'Montant, mode et date de règlement valides requis' });
+  }
+
+  try {
+    const payment = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM factures_achat
+        WHERE id = ${invoiceId} AND entreprise_id = ${req.entrepriseId}
+        FOR UPDATE`);
+      const [invoice] = await tx.select().from(facturesAchat).where(and(
+        eq(facturesAchat.id, invoiceId),
+        eq(facturesAchat.entrepriseId, req.entrepriseId),
+      )).limit(1);
+      if (!invoice) throw Object.assign(new Error('Facture fournisseur introuvable'), { status: 404 });
+
+      const amount = round2(montant);
+      const due = Number(invoice.soldeRestant || 0);
+      if (amount > due + 0.01) throw Object.assign(new Error(`Le règlement dépasse le solde dû (${due} FCFA)`), { status: 400 });
+      const [supplier] = await tx.select().from(fournisseurs).where(and(
+        eq(fournisseurs.id, invoice.fournisseurId),
+        eq(fournisseurs.entrepriseId, req.entrepriseId),
+      )).limit(1);
+      if (!supplier) throw Object.assign(new Error('Fournisseur introuvable'), { status: 404 });
+
+      if (compteBancaireId) {
+        const [bank] = await tx.select().from(comptesBancaires).where(and(
+          eq(comptesBancaires.id, compteBancaireId),
+          eq(comptesBancaires.entrepriseId, req.entrepriseId),
+          eq(comptesBancaires.actif, true),
+        )).limit(1);
+        if (!bank) throw Object.assign(new Error('Compte bancaire introuvable'), { status: 400 });
+        await tx.insert(transactionsTresorerie).values({
+          entrepriseId: req.entrepriseId,
+          compteBancaireId,
+          type: 'decaissement',
+          montant: amount.toFixed(2),
+          dateTransaction: datePaiement,
+          categorie: 'Règlement fournisseur',
+          description: `Règlement facture ${invoice.numeroFacture}`,
+          tiersNom: supplier.raisonSociale,
+          numeroPiece: invoice.numeroFacture,
+          modePaiement,
+          userId: req.user.id,
+        });
+        await tx.update(comptesBancaires).set({
+          soldeActuel: sql`${comptesBancaires.soldeActuel} - ${amount.toFixed(2)}`,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(comptesBancaires.id, compteBancaireId),
+          eq(comptesBancaires.entrepriseId, req.entrepriseId),
+        ));
+      }
+
+      const [created] = await tx.insert(paiementsFournisseurs).values({
+        entrepriseId: req.entrepriseId,
+        factureId: invoiceId,
+        fournisseurId: supplier.id,
+        montant: amount.toFixed(2),
+        modePaiement,
+        reference: req.body?.reference ? String(req.body.reference).slice(0, 255) : null,
+        datePaiement,
+        notes: req.body?.notes ? String(req.body.notes).slice(0, 2000) : null,
+        userId: req.user.id,
+      }).returning();
+      const newDue = Math.max(0, round2(due - amount));
+      await tx.update(facturesAchat).set({
+        montantPaye: (Number(invoice.montantPaye || 0) + amount).toFixed(2),
+        soldeRestant: newDue.toFixed(2),
+        updatedAt: new Date(),
+      }).where(and(
+        eq(facturesAchat.id, invoiceId),
+        eq(facturesAchat.entrepriseId, req.entrepriseId),
+      ));
+      await tx.update(fournisseurs).set({
+        soldeDu: sql`COALESCE(${fournisseurs.soldeDu}, 0) - ${amount.toFixed(2)}`,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(fournisseurs.id, supplier.id),
+        eq(fournisseurs.entrepriseId, req.entrepriseId),
+      ));
+
+      const entry = await createEcriturePaiementFournisseur({
+        entrepriseId: req.entrepriseId,
+        reference: created.reference || `REG-${created.id}`,
+        datePaiement,
+        fournisseurNom: supplier.raisonSociale,
+        fournisseurCompteId: supplier.compteComptableId,
+        montant: amount,
+        modePaiement,
+        compteBancaireId,
+        executor: tx,
+      });
+      if (!entry) throw new Error('Écriture comptable du règlement fournisseur non générée');
+      return { paiement: created, soldeRestant: newDue };
+    });
+    return res.status(201).json({ success: true, message: 'Règlement fournisseur enregistré', data: payment });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Impossible d’enregistrer le règlement fournisseur' });
   }
 });
 

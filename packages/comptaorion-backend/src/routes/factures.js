@@ -76,7 +76,7 @@ router.get('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Erreur GET /api/factures:', error);
-    res.status(500).json({
+    res.status(error.status || 500).json({
       success: false,
       message: 'Erreur lors de la récupération des factures',
       error: error.message,
@@ -500,10 +500,13 @@ router.post('/:id/paiement', async (req, res) => {
       datePaiement,
       compteBancaireId,
       notes,
+      numeroCheque,
+      banqueCheque,
     } = req.body;
 
     // Validation
-    if (!montant || montant <= 0) {
+    const montantValide = Number(montant);
+    if (!Number.isFinite(montantValide) || montantValide <= 0) {
       return res.status(400).json({
         success: false,
         message: 'Le montant du paiement doit être positif',
@@ -517,139 +520,120 @@ router.post('/:id/paiement', async (req, res) => {
       });
     }
 
-    // Récupérer la facture
-    const [factureData] = await db
-      .select()
-      .from(factures)
-      .where(and(
-        eq(factures.id, parseInt(id)),
-        eq(factures.entrepriseId, req.entrepriseId)
-      ))
-      .limit(1);
-
-    if (!factureData) {
-      return res.status(404).json({
-        success: false,
-        message: 'Facture non trouvée',
-      });
+    if (modePaiement === 'cheque' && !String(numeroCheque || '').trim()) {
+      return res.status(400).json({ success: false, message: 'Le numéro du chèque est obligatoire' });
     }
 
-    const montantPaiement = parseFloat(montant);
-    const soldeRestant = parseFloat(factureData.soldeRestant);
+    const result = await db.transaction(async (tx) => {
+      const factureId = Number(id);
+      await tx.execute(sql`SELECT id FROM factures
+        WHERE id = ${factureId} AND entreprise_id = ${req.entrepriseId}
+        FOR UPDATE`);
+      const [factureData] = await tx.select().from(factures)
+        .where(and(eq(factures.id, factureId), eq(factures.entrepriseId, req.entrepriseId)))
+        .limit(1);
+      if (!factureData) throw Object.assign(new Error('Facture non trouvée'), { status: 404 });
 
-    if (montantPaiement > soldeRestant) {
-      return res.status(400).json({
-        success: false,
-        message: `Le montant du paiement ne peut pas dépasser le solde restant (${soldeRestant} FCFA)`,
-      });
-    }
+      const montantPaiement = Math.round(montantValide * 100) / 100;
+      const soldeRestant = Number(factureData.soldeRestant || 0);
+      if (montantPaiement > soldeRestant + 0.01) {
+        throw Object.assign(new Error(`Le montant du paiement ne peut pas dépasser le solde restant (${soldeRestant} FCFA)`), { status: 400 });
+      }
 
-    // Enregistrer le paiement
-    const [newPaiement] = await db
-      .insert(paiements)
-      .values({
+      const jour = datePaiement || new Date().toISOString().slice(0, 10);
+      const [newPaiement] = await tx.insert(paiements).values({
         entrepriseId: req.entrepriseId,
-        factureId: parseInt(id),
+        factureId,
         clientId: factureData.clientId,
         montant: montantPaiement.toFixed(2),
         modePaiement,
+        numeroCheque: modePaiement === 'cheque' ? String(numeroCheque).trim().slice(0, 100) : null,
+        banqueCheque: modePaiement === 'cheque' && banqueCheque ? String(banqueCheque).trim().slice(0, 255) : null,
+        statutCheque: modePaiement === 'cheque' ? 'a_deposer' : null,
         reference: reference || null,
-        datePaiement: datePaiement || new Date().toISOString().split('T')[0],
+        datePaiement: jour,
         notes: notes || null,
         userId: req.user.id,
-      })
-      .returning();
+      }).returning();
 
-    // Mettre à jour la facture
-    const nouveauMontantPaye = parseFloat(factureData.montantPaye) + montantPaiement;
-    const nouveauSoldeRestant = parseFloat(factureData.totalTTC) - nouveauMontantPaye;
-    const nouveauStatut = nouveauSoldeRestant <= 0.01 ? 'payee' : 'envoyee';
-
-    await db
-      .update(factures)
-      .set({
+      const nouveauMontantPaye = Number(factureData.montantPaye || 0) + montantPaiement;
+      const nouveauSoldeRestant = Math.max(0, soldeRestant - montantPaiement);
+      const nouveauStatut = nouveauSoldeRestant <= 0.01 ? 'payee' : 'envoyee';
+      await tx.update(factures).set({
         montantPaye: nouveauMontantPaye.toFixed(2),
-        soldeRestant: Math.max(0, nouveauSoldeRestant).toFixed(2),
+        soldeRestant: nouveauSoldeRestant.toFixed(2),
         statut: nouveauStatut,
         updatedAt: new Date(),
-      })
-      .where(and(
-        eq(factures.id, parseInt(id)),
-        eq(factures.entrepriseId, req.entrepriseId)
-      ));
+      }).where(and(eq(factures.id, factureId), eq(factures.entrepriseId, req.entrepriseId)));
 
-    // Impact automatique sur TRÉSORERIE
-    if (compteBancaireId) {
-      // Enregistrer la transaction de trésorerie
-      await db.insert(transactionsTresorerie).values({
-        entrepriseId: req.entrepriseId,
-        compteBancaireId: parseInt(compteBancaireId),
-        type: 'encaissement',
-        montant: montantPaiement.toFixed(2),
-        dateTransaction: datePaiement || new Date().toISOString().split('T')[0],
-        categorie: 'Vente',
-        description: `Paiement facture ${factureData.numeroFacture}`,
-        tiersNom: null,
-        numeroPiece: factureData.numeroFacture,
-        userId: req.user.id,
-      });
-
-      // Mettre à jour le solde du compte bancaire
-      const [compte] = await db
-        .select()
-        .from(comptesBancaires)
-        .where(eq(comptesBancaires.id, parseInt(compteBancaireId)))
-        .limit(1);
-
-      if (compte) {
-        const nouveauSolde = parseFloat(compte.soldeActuel) + montantPaiement;
-        await db
-          .update(comptesBancaires)
-          .set({
-            soldeActuel: nouveauSolde.toFixed(2),
-            updatedAt: new Date(),
-          })
-          .where(eq(comptesBancaires.id, parseInt(compteBancaireId)));
+      // A reçu de chèque crédite le compte client immédiatement, mais n'augmente
+      // le solde bancaire qu'au moment où le dépôt est enregistré.
+      if (modePaiement !== 'cheque' && compteBancaireId) {
+        const bankId = Number(compteBancaireId);
+        const [compte] = await tx.select().from(comptesBancaires)
+          .where(and(
+            eq(comptesBancaires.id, bankId),
+            eq(comptesBancaires.entrepriseId, req.entrepriseId),
+          )).limit(1);
+        if (!compte) throw Object.assign(new Error('Compte bancaire introuvable'), { status: 400 });
+        await tx.insert(transactionsTresorerie).values({
+          entrepriseId: req.entrepriseId,
+          compteBancaireId: bankId,
+          type: 'encaissement',
+          montant: montantPaiement.toFixed(2),
+          dateTransaction: jour,
+          categorie: 'Vente',
+          description: `Paiement facture ${factureData.numeroFacture}`,
+          numeroPiece: factureData.numeroFacture,
+          modePaiement,
+          userId: req.user.id,
+        });
+        await tx.update(comptesBancaires).set({
+          soldeActuel: sql`${comptesBancaires.soldeActuel} + ${montantPaiement.toFixed(2)}`,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(comptesBancaires.id, bankId),
+          eq(comptesBancaires.entrepriseId, req.entrepriseId),
+        ));
       }
-    }
 
-    // Impact automatique sur COMPTABILITÉ
-    // Débit: Banque/Caisse - Crédit: Client (411)
-    try {
-      const clientData = await db.select().from(clients).where(eq(clients.id, factureData.clientId)).limit(1);
-      const clientInfo = clientData[0] || {};
-      
-      await createEcriturePaiementClient({
+      const [clientInfo] = await tx.select().from(clients).where(and(
+        eq(clients.id, factureData.clientId),
+        eq(clients.entrepriseId, req.entrepriseId),
+      )).limit(1);
+      const entry = await createEcriturePaiementClient({
         entrepriseId: req.entrepriseId,
         reference: reference || `PAI-${newPaiement.id}`,
-        datePaiement: datePaiement || new Date().toISOString().split('T')[0],
-        clientNom: clientInfo.nom || 'Client',
-        clientCompteId: clientInfo.compteComptableId,
+        datePaiement: jour,
+        clientNom: clientInfo?.nom || 'Client',
+        clientCompteId: clientInfo?.compteComptableId,
         montant: montantPaiement,
-        modePaiement: modePaiement === 'especes' ? 'especes' : 'banque',
-        compteBancaireId: compteBancaireId ? parseInt(compteBancaireId) : null
+        modePaiement,
+        compteBancaireId: compteBancaireId ? Number(compteBancaireId) : null,
+        executor: tx,
       });
-    } catch (comptaError) {
-      console.warn('Avertissement: Écriture comptable paiement client non générée:', comptaError.message);
-    }
+      if (!entry) throw new Error('Écriture comptable du paiement non générée; le paiement a été annulé');
+      return {
+        paiement: newPaiement,
+        facture: {
+          montantPaye: nouveauMontantPaye.toFixed(2),
+          soldeRestant: nouveauSoldeRestant.toFixed(2),
+          statut: nouveauStatut,
+        },
+      };
+    });
 
     res.status(201).json({
       success: true,
       message: 'Paiement enregistré avec succès',
-      data: {
-        paiement: newPaiement,
-        facture: {
-          montantPaye: nouveauMontantPaye.toFixed(2),
-          soldeRestant: Math.max(0, nouveauSoldeRestant).toFixed(2),
-          statut: nouveauStatut,
-        },
-      },
+      data: result,
     });
   } catch (error) {
     console.error('Erreur POST /api/factures/:id/paiement:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de l\'enregistrement du paiement',
+      ...(error.status ? { status: error.status } : {}),
       error: error.message,
     });
   }

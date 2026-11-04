@@ -10,6 +10,7 @@ import depensesRoutes from './routes/dépenses.js';
 import financialReportsRoutes from './routes/financial-reports.js';
 import aiRoutes from './routes/ai.js';
 import litePurchasesRoutes from './routes/lite-purchases.js';
+import liteAccountingRoutes from './routes/lite-accounting.js';
 import saasPlatformAdminRoutes, { requirePlatformOwner } from './routes/saas-platform-admin.js';
 import commercialPortalRoutes from './routes/commercial-portal.js';
 import { authMiddleware, entrepriseIsolation } from './auth.js';
@@ -35,6 +36,7 @@ app.use('/api/depenses', depensesRoutes);
 app.use('/api/financial-reports', financialReportsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api', litePurchasesRoutes);
+app.use('/api', liteAccountingRoutes);
 app.use((error, _req, res, next) => {
   if (error.type === 'entity.too.large') return res.status(413).json({ success: false, message: 'Photo trop volumineuse (4 Mio maximum).' });
   if (error.type === 'entity.parse.failed') return res.status(400).json({ success: false, message: 'Corps JSON invalide.' });

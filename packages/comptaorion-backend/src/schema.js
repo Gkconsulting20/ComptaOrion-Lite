@@ -592,6 +592,11 @@ export const paiements = pgTable('paiements', {
   clientId: integer('client_id').references(() => clients.id),
   montant: decimal('montant', { precision: 15, scale: 2 }).notNull(),
   modePaiement: varchar('mode_paiement', { length: 100 }), // espèces, virement, mobile money, etc.
+  numeroCheque: varchar('numero_cheque', { length: 100 }),
+  banqueCheque: varchar('banque_cheque', { length: 255 }),
+  statutCheque: varchar('statut_cheque', { length: 30 }),
+  dateDepotCheque: date('date_depot_cheque'),
+  compteBancaireDepotId: integer('compte_bancaire_depot_id').references(() => comptesBancaires.id),
   reference: varchar('reference', { length: 255 }),
   datePaiement: date('date_paiement').defaultNow(),
   notes: text('notes'),
@@ -1616,6 +1621,41 @@ export const tauxChange = pgTable('taux_change', {
   actif: boolean('actif').default(true),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// A customer or supplier return is stored separately from its source invoice.
+// This preserves the original document and provides an auditable credit/debit note.
+export const retoursMarchandises = pgTable('retours_marchandises', {
+  id: serial('id').primaryKey(),
+  entrepriseId: integer('entreprise_id').references(() => entreprises.id).notNull(),
+  type: varchar('type', { length: 20 }).notNull(), // client, fournisseur
+  numero: varchar('numero', { length: 100 }).notNull(),
+  factureId: integer('facture_id').references(() => factures.id),
+  factureAchatId: integer('facture_achat_id').references(() => facturesAchat.id),
+  clientId: integer('client_id').references(() => clients.id),
+  fournisseurId: integer('fournisseur_id').references(() => fournisseurs.id),
+  dateRetour: date('date_retour', { mode: 'string' }).notNull(),
+  totalHT: decimal('total_ht', { precision: 15, scale: 2 }).notNull(),
+  totalTVA: decimal('total_tva', { precision: 15, scale: 2 }).notNull(),
+  totalTTC: decimal('total_ttc', { precision: 15, scale: 2 }).notNull(),
+  notes: text('notes'),
+  userId: integer('user_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const retoursMarchandisesItems = pgTable('retours_marchandises_items', {
+  id: serial('id').primaryKey(),
+  entrepriseId: integer('entreprise_id').references(() => entreprises.id).notNull(),
+  retourId: integer('retour_id').references(() => retoursMarchandises.id).notNull(),
+  factureItemId: integer('facture_item_id').references(() => factureItems.id),
+  factureAchatItemId: integer('facture_achat_item_id').references(() => factureAchatItems.id),
+  produitId: integer('produit_id').references(() => produits.id),
+  description: text('description').notNull(),
+  quantite: decimal('quantite', { precision: 15, scale: 3 }).notNull(),
+  prixUnitaire: decimal('prix_unitaire', { precision: 15, scale: 2 }).notNull(),
+  remise: decimal('remise', { precision: 5, scale: 2 }).notNull().default('0'),
+  totalLigne: decimal('total_ligne', { precision: 15, scale: 2 }).notNull(),
+  reintegrerStock: boolean('reintegrer_stock').notNull().default(false),
 });
 
 // Liste des devises supportées
