@@ -550,7 +550,7 @@ router.post('/:id/paiement', async (req, res) => {
       const discount = calculateEarlyPaymentDiscount({
         balance: soldeRestant,
         paymentAmount: montantPaiement,
-        invoiceDate: String(factureData.dateFacture || ''),
+        invoiceDate: String(factureData.dateFacture || '').slice(0, 10),
         paymentDate: String(jour),
         percentage: clientInfo?.escomptePourcentage,
         discountDays: clientInfo?.escompteDelaiJours,

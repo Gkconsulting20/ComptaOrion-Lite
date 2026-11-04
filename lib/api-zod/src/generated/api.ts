@@ -471,7 +471,7 @@ export const GetCustomerAccountLedgerResponse = zod.object({
   "mouvements": zod.array(zod.object({
   "date": zod.string().nullable(),
   "reference": zod.string().nullable(),
-  "type": zod.enum(['facture', 'paiement', 'retour']),
+  "type": zod.enum(['facture', 'paiement', 'retour', 'note_debit', 'note_credit', 'escompte']),
   "libelle": zod.string(),
   "montant": zod.number()
 })),
@@ -479,6 +479,9 @@ export const GetCustomerAccountLedgerResponse = zod.object({
   "factures": zod.number(),
   "paiements": zod.number(),
   "retours": zod.number(),
+  "notesDebit": zod.number(),
+  "notesCredit": zod.number(),
+  "escomptes": zod.number(),
   "solde": zod.number()
 })
 })
@@ -499,7 +502,7 @@ export const GetSupplierAccountLedgerResponse = zod.object({
   "mouvements": zod.array(zod.object({
   "date": zod.string().nullable(),
   "reference": zod.string().nullable(),
-  "type": zod.enum(['facture', 'paiement', 'retour']),
+  "type": zod.enum(['facture', 'paiement', 'retour', 'note_debit', 'note_credit', 'escompte']),
   "libelle": zod.string(),
   "montant": zod.number()
 })),
@@ -507,6 +510,9 @@ export const GetSupplierAccountLedgerResponse = zod.object({
   "factures": zod.number(),
   "paiements": zod.number(),
   "retours": zod.number(),
+  "notesDebit": zod.number(),
+  "notesCredit": zod.number(),
+  "escomptes": zod.number(),
   "solde": zod.number()
 })
 })
@@ -550,6 +556,146 @@ export const ListLiteBankAccountsResponse = zod.object({
   "soldeActuel": zod.number(),
   "actif": zod.boolean()
 }))
+})
+
+
+export const ListAdjustmentAccountsQueryParams = zod.object({
+  "type": zod.enum(['client', 'fournisseur'])
+})
+
+export const ListAdjustmentAccountsResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.array(zod.object({
+  "id": zod.number().int(),
+  "numero": zod.string(),
+  "nom": zod.string()
+}))
+})
+
+
+
+
+
+export const UpdateCustomerDiscountTermsParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const updateCustomerDiscountTermsBodyEscomptePourcentageMin = 0;
+export const updateCustomerDiscountTermsBodyEscomptePourcentageMax = 100;
+
+export const updateCustomerDiscountTermsBodyEscompteDelaiJoursMin = 0;
+export const updateCustomerDiscountTermsBodyEscompteDelaiJoursMax = 366;
+
+export const updateCustomerDiscountTermsBodyDelaiPaiementMin = 0;
+export const updateCustomerDiscountTermsBodyDelaiPaiementMax = 3660;
+
+
+
+export const UpdateCustomerDiscountTermsBody = zod.object({
+  "escomptePourcentage": zod.number().min(updateCustomerDiscountTermsBodyEscomptePourcentageMin).max(updateCustomerDiscountTermsBodyEscomptePourcentageMax),
+  "escompteDelaiJours": zod.number().int().min(updateCustomerDiscountTermsBodyEscompteDelaiJoursMin).max(updateCustomerDiscountTermsBodyEscompteDelaiJoursMax),
+  "delaiPaiement": zod.number().int().min(updateCustomerDiscountTermsBodyDelaiPaiementMin).max(updateCustomerDiscountTermsBodyDelaiPaiementMax)
+})
+
+export const UpdateCustomerDiscountTermsResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string().optional(),
+  "data": zod.record(zod.string(), zod.unknown())
+})
+
+
+
+
+
+export const UpdateSupplierDiscountTermsParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const updateSupplierDiscountTermsBodyEscomptePourcentageMin = 0;
+export const updateSupplierDiscountTermsBodyEscomptePourcentageMax = 100;
+
+export const updateSupplierDiscountTermsBodyEscompteDelaiJoursMin = 0;
+export const updateSupplierDiscountTermsBodyEscompteDelaiJoursMax = 366;
+
+export const updateSupplierDiscountTermsBodyDelaiPaiementMin = 0;
+export const updateSupplierDiscountTermsBodyDelaiPaiementMax = 3660;
+
+
+
+export const UpdateSupplierDiscountTermsBody = zod.object({
+  "escomptePourcentage": zod.number().min(updateSupplierDiscountTermsBodyEscomptePourcentageMin).max(updateSupplierDiscountTermsBodyEscomptePourcentageMax),
+  "escompteDelaiJours": zod.number().int().min(updateSupplierDiscountTermsBodyEscompteDelaiJoursMin).max(updateSupplierDiscountTermsBodyEscompteDelaiJoursMax),
+  "delaiPaiement": zod.number().int().min(updateSupplierDiscountTermsBodyDelaiPaiementMin).max(updateSupplierDiscountTermsBodyDelaiPaiementMax)
+})
+
+export const UpdateSupplierDiscountTermsResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string().optional(),
+  "data": zod.record(zod.string(), zod.unknown())
+})
+
+
+
+
+
+export const CreateCustomerDebitNoteParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const createCustomerDebitNoteBodyTotalHTExclusiveMin = 0;
+
+export const createCustomerDebitNoteBodyTotalTVAMin = 0;
+
+
+export const createCustomerDebitNoteBodyMotifMin = 3;
+export const createCustomerDebitNoteBodyMotifMax = 500;
+
+
+
+export const CreateCustomerDebitNoteBody = zod.object({
+  "dateNote": zod.coerce.date().optional(),
+  "totalHT": zod.number().gt(createCustomerDebitNoteBodyTotalHTExclusiveMin),
+  "totalTVA": zod.number().min(createCustomerDebitNoteBodyTotalTVAMin).optional(),
+  "compteAjustementId": zod.number().int().min(1),
+  "motif": zod.string().min(createCustomerDebitNoteBodyMotifMin).max(createCustomerDebitNoteBodyMotifMax)
+})
+
+export const CreateCustomerDebitNoteResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string().optional(),
+  "data": zod.record(zod.string(), zod.unknown())
+})
+
+
+
+
+
+export const CreateSupplierCreditNoteParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const createSupplierCreditNoteBodyTotalHTExclusiveMin = 0;
+
+export const createSupplierCreditNoteBodyTotalTVAMin = 0;
+
+
+export const createSupplierCreditNoteBodyMotifMin = 3;
+export const createSupplierCreditNoteBodyMotifMax = 500;
+
+
+
+export const CreateSupplierCreditNoteBody = zod.object({
+  "dateNote": zod.coerce.date().optional(),
+  "totalHT": zod.number().gt(createSupplierCreditNoteBodyTotalHTExclusiveMin),
+  "totalTVA": zod.number().min(createSupplierCreditNoteBodyTotalTVAMin).optional(),
+  "compteAjustementId": zod.number().int().min(1),
+  "motif": zod.string().min(createSupplierCreditNoteBodyMotifMin).max(createSupplierCreditNoteBodyMotifMax)
+})
+
+export const CreateSupplierCreditNoteResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string().optional(),
+  "data": zod.record(zod.string(), zod.unknown())
 })
 
 

@@ -361,6 +361,9 @@ export const AccountMovementType = {
   facture: 'facture',
   paiement: 'paiement',
   retour: 'retour',
+  note_debit: 'note_debit',
+  note_credit: 'note_credit',
+  escompte: 'escompte',
 } as const;
 
 export interface AccountMovement {
@@ -379,6 +382,9 @@ export interface AccountLedgerTotals {
   factures: number;
   paiements: number;
   retours: number;
+  notesDebit: number;
+  notesCredit: number;
+  escomptes: number;
   solde: number;
 }
 
@@ -386,6 +392,65 @@ export interface AccountLedger {
   tiers: AccountLedgerTiers;
   mouvements: AccountMovement[];
   totaux: AccountLedgerTotals;
+}
+
+export interface DiscountTermsInput {
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  escomptePourcentage: number;
+  /**
+     * @minimum 0
+     * @maximum 366
+     */
+  escompteDelaiJours: number;
+  /**
+     * @minimum 0
+     * @maximum 3660
+     */
+  delaiPaiement: number;
+}
+
+export interface CustomerDebitNoteInput {
+  dateNote?: string;
+  /** @exclusiveMinimum 0 */
+  totalHT: number;
+  /** @minimum 0 */
+  totalTVA?: number;
+  /** @minimum 1 */
+  compteAjustementId: number;
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  motif: string;
+}
+
+export interface SupplierCreditNoteInput {
+  dateNote?: string;
+  /** @exclusiveMinimum 0 */
+  totalHT: number;
+  /** @minimum 0 */
+  totalTVA?: number;
+  /** @minimum 1 */
+  compteAjustementId: number;
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  motif: string;
+}
+
+export interface AdjustmentAccount {
+  id: number;
+  numero: string;
+  nom: string;
+}
+
+export interface AdjustmentAccountsResponse {
+  success: boolean;
+  data: AdjustmentAccount[];
 }
 
 export interface AccountLedgerResponse {
@@ -458,4 +523,16 @@ export type AnalyzeClientPayments200 = {
   success: boolean;
   data: PaymentScore;
 };
+
+export type ListAdjustmentAccountsParams = {
+type: ListAdjustmentAccountsType;
+};
+
+export type ListAdjustmentAccountsType = typeof ListAdjustmentAccountsType[keyof typeof ListAdjustmentAccountsType];
+
+
+export const ListAdjustmentAccountsType = {
+  client: 'client',
+  fournisseur: 'fournisseur',
+} as const;
 

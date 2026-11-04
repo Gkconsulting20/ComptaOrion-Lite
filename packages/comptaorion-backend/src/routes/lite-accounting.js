@@ -334,7 +334,6 @@ async function createAdjustmentNote({ req, type, sourceId, body }) {
   const dateNote = body?.dateNote || new Date().toISOString().slice(0, 10);
   const totalHT = round2(Number(body?.totalHT));
   const totalTVA = round2(Number(body?.totalTVA || 0));
-  const totalTTC = round2(totalHT + totalTVA);
   const compteAjustementId = Number(body?.compteAjustementId);
   const motif = String(body?.motif || '').trim().slice(0, 500);
   if (!validDate(dateNote) || !Number.isFinite(totalHT) || totalHT <= 0
@@ -363,6 +362,7 @@ async function createAdjustmentNote({ req, type, sourceId, body }) {
       eq(comptesComptables.entrepriseId, req.entrepriseId),
       eq(comptesComptables.actif, true),
       like(comptesComptables.numero, accountPrefix),
+      sql`length(${comptesComptables.numero}) >= 3`,
     )).limit(1);
     if (!adjustmentAccount) throw fail('Compte d’ajustement invalide pour ce type de note', 400);
 
@@ -482,6 +482,7 @@ router.get('/comptes-comptables-ajustement', async (req, res) => {
       eq(comptesComptables.entrepriseId, req.entrepriseId),
       eq(comptesComptables.actif, true),
       like(comptesComptables.numero, prefix),
+      sql`length(${comptesComptables.numero}) >= 3`,
     )).orderBy(asc(comptesComptables.numero));
     return res.json({ success: true, data: accounts });
   } catch {

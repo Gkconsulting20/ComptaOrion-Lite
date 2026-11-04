@@ -10,5 +10,8 @@ export interface AccountLedgerTotals {
   factures: number;
   paiements: number;
   retours: number;
+  notesDebit: number;
+  notesCredit: number;
+  escomptes: number;
   solde: number;
 }

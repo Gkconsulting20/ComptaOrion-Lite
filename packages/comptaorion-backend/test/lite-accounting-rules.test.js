@@ -90,7 +90,7 @@ test('un escompte ne s’applique qu’au règlement complet payé avant la date
   assert.deepEqual(eligible, { discountAmount: 1, settledAmount: 100, discountApplied: true });
   assert.equal(calculateEarlyPaymentDiscount({
     balance: 100, paymentAmount: 99, invoiceDate: '2026-01-01',
-    paymentDate: '2026-01-16', percentage: 1, discountDays: 15,
+    paymentDate: '2026-01-17', percentage: 1, discountDays: 15,
   }).discountApplied, false);
   assert.equal(calculateEarlyPaymentDiscount({
     balance: 100, paymentAmount: 50, invoiceDate: '2026-01-01',

@@ -337,6 +337,99 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BankAccountsResponse" }
+  /comptes-comptables-ajustement:
+    get:
+      operationId: listAdjustmentAccounts
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema: { type: string, enum: [client, fournisseur] }
+      responses:
+        "200":
+          description: Income or expense accounts available for an adjustment note
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdjustmentAccountsResponse" }
+  /clients/{id}/conditions-escompte:
+    put:
+      operationId: updateCustomerDiscountTerms
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DiscountTermsInput" }
+      responses:
+        "200":
+          description: Customer discount and net due terms updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationResponse" }
+        "400": { $ref: "#/components/responses/AiFailure" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+  /fournisseurs/{id}/conditions-escompte:
+    put:
+      operationId: updateSupplierDiscountTerms
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DiscountTermsInput" }
+      responses:
+        "200":
+          description: Supplier discount and net due terms updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationResponse" }
+        "400": { $ref: "#/components/responses/AiFailure" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+  /factures/{id}/notes-debit:
+    post:
+      operationId: createCustomerDebitNote
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerDebitNoteInput" }
+      responses:
+        "201":
+          description: Customer debit note, due balance and journal entry recorded without stock movement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationResponse" }
+        "400": { $ref: "#/components/responses/AiFailure" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+        "409": { $ref: "#/components/responses/AiFailure" }
+  /achats/{id}/notes-credit:
+    post:
+      operationId: createSupplierCreditNote
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SupplierCreditNoteInput" }
+      responses:
+        "201":
+          description: Supplier credit note, payable balance and journal entry recorded without stock movement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationResponse" }
+        "400": { $ref: "#/components/responses/AiFailure" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+        "409": { $ref: "#/components/responses/AiFailure" }
   /healthz:
     get:
       operationId: healthCheck
@@ -606,7 +699,7 @@ components:
       properties:
         date: { type: ["string", "null"] }
         reference: { type: ["string", "null"] }
-        type: { type: string, enum: [facture, paiement, retour] }
+        type: { type: string, enum: [facture, paiement, retour, note_debit, note_credit, escompte] }
         libelle: { type: string }
         montant: { type: number }
     AccountLedger:
@@ -620,12 +713,55 @@ components:
         totaux: { $ref: "#/components/schemas/AccountLedgerTotals" }
     AccountLedgerTotals:
       type: object
-      required: [factures, paiements, retours, solde]
+      required: [factures, paiements, retours, notesDebit, notesCredit, escomptes, solde]
       properties:
         factures: { type: number }
         paiements: { type: number }
         retours: { type: number }
+        notesDebit: { type: number }
+        notesCredit: { type: number }
+        escomptes: { type: number }
         solde: { type: number }
+    DiscountTermsInput:
+      type: object
+      required: [escomptePourcentage, escompteDelaiJours, delaiPaiement]
+      properties:
+        escomptePourcentage: { type: number, minimum: 0, maximum: 100 }
+        escompteDelaiJours: { type: integer, minimum: 0, maximum: 366 }
+        delaiPaiement: { type: integer, minimum: 0, maximum: 3660 }
+    CustomerDebitNoteInput:
+      type: object
+      required: [totalHT, compteAjustementId, motif]
+      properties:
+        dateNote: { type: string, format: date }
+        totalHT: { type: number, exclusiveMinimum: 0 }
+        totalTVA: { type: number, minimum: 0 }
+        compteAjustementId: { type: integer, minimum: 1 }
+        motif: { type: string, minLength: 3, maxLength: 500 }
+    SupplierCreditNoteInput:
+      type: object
+      required: [totalHT, compteAjustementId, motif]
+      properties:
+        dateNote: { type: string, format: date }
+        totalHT: { type: number, exclusiveMinimum: 0 }
+        totalTVA: { type: number, minimum: 0 }
+        compteAjustementId: { type: integer, minimum: 1 }
+        motif: { type: string, minLength: 3, maxLength: 500 }
+    AdjustmentAccount:
+      type: object
+      required: [id, numero, nom]
+      properties:
+        id: { type: integer }
+        numero: { type: string }
+        nom: { type: string }
+    AdjustmentAccountsResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/AdjustmentAccount" }
     AccountLedgerResponse:
       type: object
       required: [success, data]

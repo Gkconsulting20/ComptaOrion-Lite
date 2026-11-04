@@ -21,15 +21,19 @@ import type {
 
 import type {
   AccountLedgerResponse,
+  AdjustmentAccountsResponse,
   AiFailureResponse,
   AnalyzeClientPayments200,
   BankAccountsResponse,
   ChequeDepositInput,
   ConfirmPhotoExpense200,
+  CustomerDebitNoteInput,
   CustomerPaymentInput,
+  DiscountTermsInput,
   GetAiStatus200,
   GoodsReturnInput,
   HealthStatus,
+  ListAdjustmentAccountsParams,
   LitePurchaseInput,
   OperationResponse,
   PaymentAnalysisInput,
@@ -40,6 +44,7 @@ import type {
   PreparePhoto200,
   PurchaseResponse,
   PurchasesResponse,
+  SupplierCreditNoteInput,
   SupplierInput,
   SupplierPaymentInput,
   SupplierResponse,
@@ -1395,6 +1400,416 @@ export function useListLiteBankAccounts<TData = Awaited<ReturnType<typeof listLi
 
 
 
+
+export const getListAdjustmentAccountsUrl = (params: ListAdjustmentAccountsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/comptes-comptables-ajustement?${stringifiedParams}` : `/api/comptes-comptables-ajustement`
+}
+
+export const listAdjustmentAccounts = async (params: ListAdjustmentAccountsParams, options?: Parameters<typeof customFetch>[1]): Promise<AdjustmentAccountsResponse> => {
+
+  return customFetch<AdjustmentAccountsResponse>(getListAdjustmentAccountsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAdjustmentAccountsQueryKey = (params?: ListAdjustmentAccountsParams,) => {
+    return [
+    `/api/comptes-comptables-ajustement`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListAdjustmentAccountsQueryOptions = <TData = Awaited<ReturnType<typeof listAdjustmentAccounts>>, TError = ErrorType<unknown>>(params: ListAdjustmentAccountsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdjustmentAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAdjustmentAccountsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdjustmentAccounts>>> = ({ signal }) => listAdjustmentAccounts(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdjustmentAccounts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAdjustmentAccountsQueryResult = NonNullable<Awaited<ReturnType<typeof listAdjustmentAccounts>>>
+export type ListAdjustmentAccountsQueryError = ErrorType<unknown>
+
+
+
+export function useListAdjustmentAccounts<TData = Awaited<ReturnType<typeof listAdjustmentAccounts>>, TError = ErrorType<unknown>>(
+ params: ListAdjustmentAccountsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdjustmentAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAdjustmentAccountsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateCustomerDiscountTermsUrl = (id: number,) => {
+
+
+
+
+  return `/api/clients/${id}/conditions-escompte`
+}
+
+export const updateCustomerDiscountTerms = async (id: number,
+    discountTermsInput: DiscountTermsInput, options?: Parameters<typeof customFetch>[1]): Promise<OperationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<OperationResponse>(getUpdateCustomerDiscountTermsUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(discountTermsInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateCustomerDiscountTermsMutationKey = () => ['updateCustomerDiscountTerms'] as const;
+
+export const getUpdateCustomerDiscountTermsMutationOptions = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCustomerDiscountTerms>>, TError,UpdateCustomerDiscountTermsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateCustomerDiscountTerms>>, TError,UpdateCustomerDiscountTermsMutationVariables, TContext> => {
+
+const mutationKey = getUpdateCustomerDiscountTermsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateCustomerDiscountTerms>>, UpdateCustomerDiscountTermsMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateCustomerDiscountTerms(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateCustomerDiscountTermsMutationResult = NonNullable<Awaited<ReturnType<typeof updateCustomerDiscountTerms>>>
+    export type UpdateCustomerDiscountTermsMutationBody = BodyType<DiscountTermsInput>
+    export type UpdateCustomerDiscountTermsMutationError = ErrorType<AiFailureResponse>
+    export type UpdateCustomerDiscountTermsMutationVariables = {id: number;data: BodyType<DiscountTermsInput>}
+
+    export const useUpdateCustomerDiscountTerms = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateCustomerDiscountTerms>>, TError,UpdateCustomerDiscountTermsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateCustomerDiscountTerms>>,
+        TError,
+        UpdateCustomerDiscountTermsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateCustomerDiscountTermsMutationOptions(options));
+    }
+
+export const getUpdateSupplierDiscountTermsUrl = (id: number,) => {
+
+
+
+
+  return `/api/fournisseurs/${id}/conditions-escompte`
+}
+
+export const updateSupplierDiscountTerms = async (id: number,
+    discountTermsInput: DiscountTermsInput, options?: Parameters<typeof customFetch>[1]): Promise<OperationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<OperationResponse>(getUpdateSupplierDiscountTermsUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(discountTermsInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateSupplierDiscountTermsMutationKey = () => ['updateSupplierDiscountTerms'] as const;
+
+export const getUpdateSupplierDiscountTermsMutationOptions = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSupplierDiscountTerms>>, TError,UpdateSupplierDiscountTermsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateSupplierDiscountTerms>>, TError,UpdateSupplierDiscountTermsMutationVariables, TContext> => {
+
+const mutationKey = getUpdateSupplierDiscountTermsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateSupplierDiscountTerms>>, UpdateSupplierDiscountTermsMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateSupplierDiscountTerms(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateSupplierDiscountTermsMutationResult = NonNullable<Awaited<ReturnType<typeof updateSupplierDiscountTerms>>>
+    export type UpdateSupplierDiscountTermsMutationBody = BodyType<DiscountTermsInput>
+    export type UpdateSupplierDiscountTermsMutationError = ErrorType<AiFailureResponse>
+    export type UpdateSupplierDiscountTermsMutationVariables = {id: number;data: BodyType<DiscountTermsInput>}
+
+    export const useUpdateSupplierDiscountTerms = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSupplierDiscountTerms>>, TError,UpdateSupplierDiscountTermsMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateSupplierDiscountTerms>>,
+        TError,
+        UpdateSupplierDiscountTermsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateSupplierDiscountTermsMutationOptions(options));
+    }
+
+export const getCreateCustomerDebitNoteUrl = (id: number,) => {
+
+
+
+
+  return `/api/factures/${id}/notes-debit`
+}
+
+export const createCustomerDebitNote = async (id: number,
+    customerDebitNoteInput: CustomerDebitNoteInput, options?: Parameters<typeof customFetch>[1]): Promise<OperationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<OperationResponse>(getCreateCustomerDebitNoteUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(customerDebitNoteInput)
+  }
+);}
+
+
+
+
+
+export const getCreateCustomerDebitNoteMutationKey = () => ['createCustomerDebitNote'] as const;
+
+export const getCreateCustomerDebitNoteMutationOptions = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCustomerDebitNote>>, TError,CreateCustomerDebitNoteMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createCustomerDebitNote>>, TError,CreateCustomerDebitNoteMutationVariables, TContext> => {
+
+const mutationKey = getCreateCustomerDebitNoteMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCustomerDebitNote>>, CreateCustomerDebitNoteMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createCustomerDebitNote(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateCustomerDebitNoteMutationResult = NonNullable<Awaited<ReturnType<typeof createCustomerDebitNote>>>
+    export type CreateCustomerDebitNoteMutationBody = BodyType<CustomerDebitNoteInput>
+    export type CreateCustomerDebitNoteMutationError = ErrorType<AiFailureResponse>
+    export type CreateCustomerDebitNoteMutationVariables = {id: number;data: BodyType<CustomerDebitNoteInput>}
+
+    export const useCreateCustomerDebitNote = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCustomerDebitNote>>, TError,CreateCustomerDebitNoteMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createCustomerDebitNote>>,
+        TError,
+        CreateCustomerDebitNoteMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateCustomerDebitNoteMutationOptions(options));
+    }
+
+export const getCreateSupplierCreditNoteUrl = (id: number,) => {
+
+
+
+
+  return `/api/achats/${id}/notes-credit`
+}
+
+export const createSupplierCreditNote = async (id: number,
+    supplierCreditNoteInput: SupplierCreditNoteInput, options?: Parameters<typeof customFetch>[1]): Promise<OperationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<OperationResponse>(getCreateSupplierCreditNoteUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(supplierCreditNoteInput)
+  }
+);}
+
+
+
+
+
+export const getCreateSupplierCreditNoteMutationKey = () => ['createSupplierCreditNote'] as const;
+
+export const getCreateSupplierCreditNoteMutationOptions = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSupplierCreditNote>>, TError,CreateSupplierCreditNoteMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSupplierCreditNote>>, TError,CreateSupplierCreditNoteMutationVariables, TContext> => {
+
+const mutationKey = getCreateSupplierCreditNoteMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSupplierCreditNote>>, CreateSupplierCreditNoteMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createSupplierCreditNote(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSupplierCreditNoteMutationResult = NonNullable<Awaited<ReturnType<typeof createSupplierCreditNote>>>
+    export type CreateSupplierCreditNoteMutationBody = BodyType<SupplierCreditNoteInput>
+    export type CreateSupplierCreditNoteMutationError = ErrorType<AiFailureResponse>
+    export type CreateSupplierCreditNoteMutationVariables = {id: number;data: BodyType<SupplierCreditNoteInput>}
+
+    export const useCreateSupplierCreditNote = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSupplierCreditNote>>, TError,CreateSupplierCreditNoteMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createSupplierCreditNote>>,
+        TError,
+        CreateSupplierCreditNoteMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateSupplierCreditNoteMutationOptions(options));
+    }
 
 export const getHealthCheckUrl = () => {
 

@@ -13,4 +13,7 @@ export const AccountMovementType = {
   facture: 'facture',
   paiement: 'paiement',
   retour: 'retour',
+  note_debit: 'note_debit',
+  note_credit: 'note_credit',
+  escompte: 'escompte',
 } as const;
