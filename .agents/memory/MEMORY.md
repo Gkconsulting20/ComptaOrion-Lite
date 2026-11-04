@@ -5,3 +5,4 @@
 - [Connexion Neon dans Shell distant](neon-cli-auth.md) — une page OAuth achevée ne prouve pas que le CLI a récupéré son callback; vérifier le profil avant déploiement.
 - [Commercialisation de Lite](lite-commercialisation.md) — marché initial Afrique francophone/XOF; Whop choisi, forfaits proposés à garder en brouillon jusqu’à validation.
 - [Vérifications de production](production-runtime-validation.md) — une réponse de santé seule ne prouve pas que la base, l’authentification et l’interface fonctionnent.
+- [Comptabilisation des chèques](lite-check-accounting.md) — la réception crédite immédiatement le client; le dépôt ultérieur ne le crédite pas une seconde fois.

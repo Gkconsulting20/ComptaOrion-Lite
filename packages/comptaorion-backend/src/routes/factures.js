@@ -513,10 +513,11 @@ router.post('/:id/paiement', async (req, res) => {
       });
     }
 
-    if (!modePaiement) {
+    const modesPaiementAutorises = new Set(['especes', 'virement', 'mobile_money', 'carte_bancaire', 'cheque']);
+    if (!modesPaiementAutorises.has(modePaiement)) {
       return res.status(400).json({
         success: false,
-        message: 'Le mode de paiement est obligatoire',
+        message: 'Le mode de paiement est invalide',
       });
     }
 

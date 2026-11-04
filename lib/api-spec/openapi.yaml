@@ -191,6 +191,152 @@ paths:
         "400": { $ref: "#/components/responses/AiFailure" }
         "404": { $ref: "#/components/responses/AiFailure" }
         "409": { $ref: "#/components/responses/AiFailure" }
+  /factures/{id}/paiement:
+    post:
+      operationId: recordCustomerPayment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CustomerPaymentInput" }
+      responses:
+        "201":
+          description: Payment and accounting entry recorded atomically
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationResponse" }
+        "400": { $ref: "#/components/responses/AiFailure" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+        "409": { $ref: "#/components/responses/AiFailure" }
+  /factures/{id}/retours:
+    post:
+      operationId: createCustomerReturn
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GoodsReturnInput" }
+      responses:
+        "201":
+          description: Customer credit note, stock movements, and journal entry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationResponse" }
+        "400": { $ref: "#/components/responses/AiFailure" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+        "409": { $ref: "#/components/responses/AiFailure" }
+  /achats/{id}/paiement:
+    post:
+      operationId: recordSupplierPayment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SupplierPaymentInput" }
+      responses:
+        "201":
+          description: Supplier payment and accounting entry recorded atomically
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationResponse" }
+        "400": { $ref: "#/components/responses/AiFailure" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+        "409": { $ref: "#/components/responses/AiFailure" }
+  /achats/{id}/retours:
+    post:
+      operationId: createSupplierReturn
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GoodsReturnInput" }
+      responses:
+        "201":
+          description: Supplier debit note, stock movements, and journal entry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationResponse" }
+        "400": { $ref: "#/components/responses/AiFailure" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+        "409": { $ref: "#/components/responses/AiFailure" }
+  /clients/{id}/compte:
+    get:
+      operationId: getCustomerAccountLedger
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: Customer debit and credit statement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccountLedgerResponse" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+  /fournisseurs/{id}/compte:
+    get:
+      operationId: getSupplierAccountLedger
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: Supplier debit and credit statement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccountLedgerResponse" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+  /cheques-clients:
+    get:
+      operationId: listCustomerChecksToDeposit
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Received customer checks that have not been deposited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PendingChecksResponse" }
+  /cheques-clients/{id}/depot:
+    post:
+      operationId: depositCustomerCheck
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChequeDepositInput" }
+      responses:
+        "200":
+          description: Check deposited to bank without crediting the customer twice
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OperationResponse" }
+        "400": { $ref: "#/components/responses/AiFailure" }
+        "404": { $ref: "#/components/responses/AiFailure" }
+        "409": { $ref: "#/components/responses/AiFailure" }
+  /comptes-bancaires-lite:
+    get:
+      operationId: listLiteBankAccounts
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: Active bank accounts for check deposits
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BankAccountsResponse" }
   /healthz:
     get:
       operationId: healthCheck
@@ -399,4 +545,115 @@ components:
       properties:
         success: { type: boolean }
         data: { $ref: "#/components/schemas/PurchaseInvoice" }
+    CustomerPaymentInput:
+      type: object
+      required: [montant, modePaiement]
+      properties:
+        montant: { type: number, exclusiveMinimum: 0 }
+        modePaiement: { type: string, enum: [especes, virement, mobile_money, carte_bancaire, cheque] }
+        datePaiement: { type: string, format: date }
+        reference: { type: string, maxLength: 255 }
+        compteBancaireId: { type: integer, minimum: 1 }
+        numeroCheque: { type: string, maxLength: 100 }
+        banqueCheque: { type: string, maxLength: 255 }
+        notes: { type: string, maxLength: 2000 }
+    SupplierPaymentInput:
+      type: object
+      required: [montant, modePaiement]
+      properties:
+        montant: { type: number, exclusiveMinimum: 0 }
+        modePaiement: { type: string, enum: [especes, virement, mobile_money, carte_bancaire] }
+        datePaiement: { type: string, format: date }
+        reference: { type: string, maxLength: 255 }
+        compteBancaireId: { type: integer, minimum: 1 }
+        notes: { type: string, maxLength: 2000 }
+    GoodsReturnItemInput:
+      type: object
+      required: [itemId, quantite]
+      properties:
+        itemId: { type: integer, minimum: 1 }
+        quantite: { type: number, exclusiveMinimum: 0 }
+        reintegrerStock: { type: boolean }
+    GoodsReturnInput:
+      type: object
+      required: [items]
+      properties:
+        dateRetour: { type: string, format: date }
+        notes: { type: string, maxLength: 2000 }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { $ref: "#/components/schemas/GoodsReturnItemInput" }
+    ChequeDepositInput:
+      type: object
+      required: [compteBancaireId]
+      properties:
+        compteBancaireId: { type: integer, minimum: 1 }
+        dateDepot: { type: string, format: date }
+    OperationResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+        data:
+          type: object
+          additionalProperties: true
+    AccountMovement:
+      type: object
+      required: [date, reference, type, libelle, montant]
+      properties:
+        date: { type: ["string", "null"] }
+        reference: { type: ["string", "null"] }
+        type: { type: string, enum: [facture, paiement, retour] }
+        libelle: { type: string }
+        montant: { type: number }
+    AccountLedger:
+      type: object
+      required: [tiers, mouvements, totaux]
+      properties:
+        tiers: { type: object, additionalProperties: true }
+        mouvements:
+          type: array
+          items: { $ref: "#/components/schemas/AccountMovement" }
+        totaux: { $ref: "#/components/schemas/AccountLedgerTotals" }
+    AccountLedgerTotals:
+      type: object
+      required: [factures, paiements, retours, solde]
+      properties:
+        factures: { type: number }
+        paiements: { type: number }
+        retours: { type: number }
+        solde: { type: number }
+    AccountLedgerResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean }
+        data: { $ref: "#/components/schemas/AccountLedger" }
+    PendingCheck:
+      type: object
+      additionalProperties: true
+    PendingChecksResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean }
+        data: { type: array, items: { $ref: "#/components/schemas/PendingCheck" } }
+    LiteBankAccount:
+      type: object
+      required: [id, nomCompte, soldeActuel, actif]
+      properties:
+        id: { type: integer }
+        nomCompte: { type: string }
+        banque: { type: ["string", "null"] }
+        soldeActuel: { type: number }
+        actif: { type: boolean }
+    BankAccountsResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean }
+        data: { type: array, items: { $ref: "#/components/schemas/LiteBankAccount" } }
 

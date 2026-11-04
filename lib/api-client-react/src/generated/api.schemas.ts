@@ -270,6 +270,150 @@ export interface PurchaseResponse {
   data: PurchaseInvoice;
 }
 
+export type CustomerPaymentInputModePaiement = typeof CustomerPaymentInputModePaiement[keyof typeof CustomerPaymentInputModePaiement];
+
+
+export const CustomerPaymentInputModePaiement = {
+  especes: 'especes',
+  virement: 'virement',
+  mobile_money: 'mobile_money',
+  carte_bancaire: 'carte_bancaire',
+  cheque: 'cheque',
+} as const;
+
+export interface CustomerPaymentInput {
+  /** @exclusiveMinimum 0 */
+  montant: number;
+  modePaiement: CustomerPaymentInputModePaiement;
+  datePaiement?: string;
+  /** @maxLength 255 */
+  reference?: string;
+  /** @minimum 1 */
+  compteBancaireId?: number;
+  /** @maxLength 100 */
+  numeroCheque?: string;
+  /** @maxLength 255 */
+  banqueCheque?: string;
+  /** @maxLength 2000 */
+  notes?: string;
+}
+
+export type SupplierPaymentInputModePaiement = typeof SupplierPaymentInputModePaiement[keyof typeof SupplierPaymentInputModePaiement];
+
+
+export const SupplierPaymentInputModePaiement = {
+  especes: 'especes',
+  virement: 'virement',
+  mobile_money: 'mobile_money',
+  carte_bancaire: 'carte_bancaire',
+} as const;
+
+export interface SupplierPaymentInput {
+  /** @exclusiveMinimum 0 */
+  montant: number;
+  modePaiement: SupplierPaymentInputModePaiement;
+  datePaiement?: string;
+  /** @maxLength 255 */
+  reference?: string;
+  /** @minimum 1 */
+  compteBancaireId?: number;
+  /** @maxLength 2000 */
+  notes?: string;
+}
+
+export interface GoodsReturnItemInput {
+  /** @minimum 1 */
+  itemId: number;
+  /** @exclusiveMinimum 0 */
+  quantite: number;
+  reintegrerStock?: boolean;
+}
+
+export interface GoodsReturnInput {
+  dateRetour?: string;
+  /** @maxLength 2000 */
+  notes?: string;
+  /**
+     * @minItems 1
+     * @maxItems 50
+     */
+  items: GoodsReturnItemInput[];
+}
+
+export interface ChequeDepositInput {
+  /** @minimum 1 */
+  compteBancaireId: number;
+  dateDepot?: string;
+}
+
+export type OperationResponseData = { [key: string]: unknown };
+
+export interface OperationResponse {
+  success: boolean;
+  message?: string;
+  data: OperationResponseData;
+}
+
+export type AccountMovementType = typeof AccountMovementType[keyof typeof AccountMovementType];
+
+
+export const AccountMovementType = {
+  facture: 'facture',
+  paiement: 'paiement',
+  retour: 'retour',
+} as const;
+
+export interface AccountMovement {
+  /** @nullable */
+  date: string | null;
+  /** @nullable */
+  reference: string | null;
+  type: AccountMovementType;
+  libelle: string;
+  montant: number;
+}
+
+export type AccountLedgerTiers = { [key: string]: unknown };
+
+export interface AccountLedgerTotals {
+  factures: number;
+  paiements: number;
+  retours: number;
+  solde: number;
+}
+
+export interface AccountLedger {
+  tiers: AccountLedgerTiers;
+  mouvements: AccountMovement[];
+  totaux: AccountLedgerTotals;
+}
+
+export interface AccountLedgerResponse {
+  success: boolean;
+  data: AccountLedger;
+}
+
+export interface PendingCheck { [key: string]: unknown }
+
+export interface PendingChecksResponse {
+  success: boolean;
+  data: PendingCheck[];
+}
+
+export interface LiteBankAccount {
+  id: number;
+  nomCompte: string;
+  /** @nullable */
+  banque?: string | null;
+  soldeActuel: number;
+  actif: boolean;
+}
+
+export interface BankAccountsResponse {
+  success: boolean;
+  data: LiteBankAccount[];
+}
+
 export type AiFailureResponse = {
   success?: boolean;
   message?: string;

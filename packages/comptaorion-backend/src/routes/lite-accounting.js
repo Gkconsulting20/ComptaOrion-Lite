@@ -20,6 +20,12 @@ import {
   transactionsTresorerie,
 } from '../schema.js';
 import { createEcritureComptable, getCompteByNumero } from '../services/comptabiliteService.js';
+import {
+  buildChequeDepositLines,
+  buildCustomerReturnLines,
+  buildSupplierReturnLines,
+} from '../services/liteAccountingRules.js';
+import { buildThirdPartyLedger } from '../services/accountLedger.js';
 
 const router = express.Router();
 const round2 = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
@@ -224,22 +230,21 @@ async function createReturn({ req, type, sourceId, body }) {
 
       const clientAccount = await requiredAccount(req.entrepriseId, '411', tx);
       const salesAccount = await requiredAccount(req.entrepriseId, '701', tx);
-      const lines = [
-        { compteComptableId: salesAccount.id, debit: totalHT, credit: 0, libelle: `Retour client ${number}` },
-        { compteComptableId: clientAccount.id, debit: 0, credit: totalTTC, libelle: `Avoir client ${number}` },
-      ];
-      if (totalTVA > 0) {
-        const vatAccount = await requiredAccount(req.entrepriseId, '443', tx);
-        lines.push({ compteComptableId: vatAccount.id, debit: totalTVA, credit: 0, libelle: `Annulation TVA vente ${number}` });
-      }
-      if (restockedCost > 0) {
-        const stockAccount = await requiredAccount(req.entrepriseId, '31', tx);
-        const costAccount = await requiredAccount(req.entrepriseId, '601', tx);
-        lines.push(
-          { compteComptableId: stockAccount.id, debit: round2(restockedCost), credit: 0, libelle: `Stock repris ${number}` },
-          { compteComptableId: costAccount.id, debit: 0, credit: round2(restockedCost), libelle: `Annulation du coût vendu ${number}` },
-        );
-      }
+      const vatAccount = totalTVA > 0 ? await requiredAccount(req.entrepriseId, '443', tx) : null;
+      const stockAccount = restockedCost > 0 ? await requiredAccount(req.entrepriseId, '31', tx) : null;
+      const costAccount = restockedCost > 0 ? await requiredAccount(req.entrepriseId, '601', tx) : null;
+      const lines = buildCustomerReturnLines({
+        salesAccountId: salesAccount.id,
+        vatAccountId: vatAccount?.id,
+        customerAccountId: clientAccount.id,
+        stockAccountId: stockAccount?.id,
+        costAccountId: costAccount?.id,
+        totalHT,
+        totalTVA,
+        totalTTC,
+        restockedCost,
+        reference: number,
+      });
       await createEcritureComptable({
         entrepriseId: req.entrepriseId,
         journalCode: 'VT',
@@ -267,14 +272,16 @@ async function createReturn({ req, type, sourceId, body }) {
 
       const supplierAccount = await requiredAccount(req.entrepriseId, '401', tx);
       const stockAccount = await requiredAccount(req.entrepriseId, '31', tx);
-      const lines = [
-        { compteComptableId: supplierAccount.id, debit: totalTTC, credit: 0, libelle: `Retour fournisseur ${number}` },
-        { compteComptableId: stockAccount.id, debit: 0, credit: totalHT, libelle: `Sortie de stock ${number}` },
-      ];
-      if (totalTVA > 0) {
-        const vatAccount = await requiredAccount(req.entrepriseId, '445', tx);
-        lines.push({ compteComptableId: vatAccount.id, debit: 0, credit: totalTVA, libelle: `Annulation TVA déductible ${number}` });
-      }
+      const vatAccount = totalTVA > 0 ? await requiredAccount(req.entrepriseId, '445', tx) : null;
+      const lines = buildSupplierReturnLines({
+        supplierAccountId: supplierAccount.id,
+        stockAccountId: stockAccount.id,
+        vatAccountId: vatAccount?.id,
+        totalHT,
+        totalTVA,
+        totalTTC,
+        reference: number,
+      });
       await createEcritureComptable({
         entrepriseId: req.entrepriseId,
         journalCode: 'AC',
@@ -324,6 +331,26 @@ router.get('/cheques-clients', async (req, res) => {
     return res.json({ success: true, data: rows });
   } catch {
     return res.status(500).json({ success: false, message: 'Impossible de charger les chèques à déposer' });
+  }
+});
+
+router.get('/comptes-bancaires-lite', async (req, res) => {
+  try {
+    const accounts = await db.select({
+      id: comptesBancaires.id,
+      nomCompte: comptesBancaires.nomCompte,
+      banque: comptesBancaires.banque,
+      soldeActuel: comptesBancaires.soldeActuel,
+      actif: comptesBancaires.actif,
+    }).from(comptesBancaires)
+      .where(and(
+        eq(comptesBancaires.entrepriseId, req.entrepriseId),
+        eq(comptesBancaires.actif, true),
+      ))
+      .orderBy(asc(comptesBancaires.nomCompte));
+    return res.json({ success: true, data: accounts });
+  } catch {
+    return res.status(500).json({ success: false, message: 'Impossible de charger les comptes bancaires' });
   }
 });
 
@@ -396,10 +423,12 @@ router.post('/cheques-clients/:id/depot', async (req, res) => {
         dateEcriture: dateDepot,
         libelle: `Dépôt du chèque ${payment.numeroCheque || payment.id}`,
         numeroPiece: payment.reference || `PAI-${payment.id}`,
-        lignes: [
-          { compteComptableId: bankAccount.id, debit: amount, credit: 0, libelle: 'Chèque déposé en banque' },
-          { compteComptableId: chequeAccount.id, debit: 0, credit: amount, libelle: 'Transfert des chèques à encaisser' },
-        ],
+        lignes: buildChequeDepositLines({
+          bankAccountId: bankAccount.id,
+          chequeAccountId: chequeAccount.id,
+          amount,
+          reference: payment.numeroCheque || payment.id,
+        }),
         valide: true,
         executor: tx,
       });
@@ -435,14 +464,15 @@ router.get('/clients/:id/compte', async (req, res) => {
         eq(retoursMarchandises.type, 'client'),
       )),
     ]);
-    const mouvements = [
-      ...invoices.map((row) => ({ date: row.dateFacture, reference: row.numeroFacture, libelle: 'Facture de vente', debit: Number(row.totalTTC || 0), credit: 0 })),
-      ...receipts.map((row) => ({ date: row.datePaiement, reference: row.reference || `PAI-${row.id}`, libelle: row.modePaiement === 'cheque' ? `Chèque reçu ${row.numeroCheque || ''}` : 'Paiement reçu', debit: 0, credit: Number(row.montant || 0) })),
-      ...credits.map((row) => ({ date: row.dateRetour, reference: row.numero, libelle: 'Note de crédit client', debit: 0, credit: Number(row.totalTTC || 0) })),
-    ].sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.reference).localeCompare(String(b.reference)));
+    const ledger = buildThirdPartyLedger({
+      partyType: 'client',
+      invoices,
+      payments: receipts,
+      returns: credits,
+    });
     return res.json({
       success: true,
-      data: { tiers: { id: client.id, nom: client.nom }, mouvements, soldeDebit: round2(mouvements.reduce((sum, row) => sum + row.debit, 0)), soldeCredit: round2(mouvements.reduce((sum, row) => sum + row.credit, 0)), solde: round2(mouvements.reduce((sum, row) => sum + row.debit - row.credit, 0)) },
+      data: { tiers: { id: client.id, nom: client.nom }, ...ledger },
     });
   } catch {
     return res.status(500).json({ success: false, message: 'Impossible de charger le compte client' });
@@ -473,14 +503,15 @@ router.get('/fournisseurs/:id/compte', async (req, res) => {
         eq(retoursMarchandises.type, 'fournisseur'),
       )),
     ]);
-    const mouvements = [
-      ...invoices.map((row) => ({ date: row.dateFacture, reference: row.numeroFacture, libelle: 'Facture fournisseur', debit: 0, credit: Number(row.totalTTC || 0) })),
-      ...payments.map((row) => ({ date: row.datePaiement, reference: row.reference || `REG-${row.id}`, libelle: 'Règlement fournisseur', debit: Number(row.montant || 0), credit: 0 })),
-      ...returns.map((row) => ({ date: row.dateRetour, reference: row.numero, libelle: 'Note de débit fournisseur', debit: Number(row.totalTTC || 0), credit: 0 })),
-    ].sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.reference).localeCompare(String(b.reference)));
+    const ledger = buildThirdPartyLedger({
+      partyType: 'fournisseur',
+      invoices,
+      payments,
+      returns,
+    });
     return res.json({
       success: true,
-      data: { tiers: { id: supplier.id, nom: supplier.raisonSociale }, mouvements, soldeDebit: round2(mouvements.reduce((sum, row) => sum + row.debit, 0)), soldeCredit: round2(mouvements.reduce((sum, row) => sum + row.credit, 0)), solde: round2(mouvements.reduce((sum, row) => sum + row.credit - row.debit, 0)) },
+      data: { tiers: { id: supplier.id, nom: supplier.raisonSociale }, ...ledger },
     });
   } catch {
     return res.status(500).json({ success: false, message: 'Impossible de charger le compte fournisseur' });

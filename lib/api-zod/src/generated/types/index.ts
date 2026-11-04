@@ -6,18 +6,35 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './accountLedger';
+export * from './accountLedgerResponse';
+export * from './accountLedgerTiers';
+export * from './accountLedgerTotals';
+export * from './accountMovement';
+export * from './accountMovementType';
 export * from './aiFailureResponse';
 export * from './analyzeClientPayments200';
+export * from './bankAccountsResponse';
+export * from './chequeDepositInput';
 export * from './confirmPhotoExpense200';
+export * from './customerPaymentInput';
+export * from './customerPaymentInputModePaiement';
 export * from './getAiStatus200';
 export * from './getAiStatus200Data';
+export * from './goodsReturnInput';
+export * from './goodsReturnItemInput';
 export * from './healthStatus';
+export * from './liteBankAccount';
 export * from './litePurchaseInput';
 export * from './litePurchaseItemInput';
+export * from './operationResponse';
+export * from './operationResponseData';
 export * from './paymentAnalysisInput';
 export * from './paymentScore';
 export * from './paymentScoreComponents';
 export * from './paymentScoreCoverage';
+export * from './pendingCheck';
+export * from './pendingChecksResponse';
 export * from './photoConfirmationInput';
 export * from './photoConfirmationInputDuplicateChoice';
 export * from './photoDuplicateConflict';
@@ -34,5 +51,7 @@ export * from './purchaseResponse';
 export * from './purchasesResponse';
 export * from './supplier';
 export * from './supplierInput';
+export * from './supplierPaymentInput';
+export * from './supplierPaymentInputModePaiement';
 export * from './supplierResponse';
 export * from './suppliersResponse';

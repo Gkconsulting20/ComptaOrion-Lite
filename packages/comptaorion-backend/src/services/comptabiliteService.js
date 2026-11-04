@@ -1,6 +1,12 @@
 import { db } from '../db.js';
 import { journaux, ecritures, lignesEcritures, comptesComptables, parametresComptables } from '../schema.js';
 import { eq, and, sql } from 'drizzle-orm';
+import {
+  assertBalancedJournalLines,
+  buildCustomerReceiptLines,
+  buildSupplierPaymentLines,
+  getCustomerReceiptAccountNumber,
+} from './liteAccountingRules.js';
 
 const JOURNAL_CODES = {
   ACHATS: 'AC',
@@ -138,12 +144,9 @@ export async function createEcritureComptable(params) {
     lignesResolues.push({ ...ligne, compteComptableId: Number(compteId), debit, credit });
   }
 
-  const totalDebit = lignesResolues.reduce((sum, l) => sum + l.debit, 0);
-  const totalCredit = lignesResolues.reduce((sum, l) => sum + l.credit, 0);
-
-  if (Math.abs(totalDebit - totalCredit) > 0.01) {
-    throw new Error(`Écriture non équilibrée: Débit=${totalDebit}, Crédit=${totalCredit}`);
-  }
+  const totals = assertBalancedJournalLines(lignesResolues);
+  const totalDebit = totals.debit;
+  const totalCredit = totals.credit;
 
   const [ecriture] = await executor.insert(ecritures).values({
     entrepriseId,
@@ -397,25 +400,15 @@ export async function createEcriturePaiementFournisseur(params) {
     ? await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CAISSE, executor)
     : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.BANQUE, executor);
 
-  const ecrituresLignes = [];
-
-  if (compte401) {
-    ecrituresLignes.push({
-      compteComptableId: compte401.id,
-      debit: montant,
-      credit: 0,
-      libelle: `Règlement ${fournisseurNom}`
-    });
-  }
-
-  if (compteTresorerie) {
-    ecrituresLignes.push({
-      compteComptableId: compteTresorerie.id,
-      debit: 0,
-      credit: montant,
-      libelle: `Décaissement ${modePaiement} - ${reference}`
-    });
-  }
+  const ecrituresLignes = compte401 && compteTresorerie
+    ? buildSupplierPaymentLines({
+      supplierAccountId: compte401.id,
+      settlementAccountId: compteTresorerie.id,
+      amount: montant,
+      modePaiement,
+      reference,
+    })
+    : [];
 
   if (ecrituresLignes.length < 2) {
     console.warn('Pas assez de comptes comptables pour créer écriture paiement fournisseur');
@@ -453,32 +446,18 @@ export async function createEcriturePaiementClient(params) {
   const journalNom = modePaiement === 'especes' ? 'Journal de Caisse' : 'Journal de Banque';
 
   const compte411 = clientCompteId ? await getCompteById(clientCompteId, executor) : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CLIENTS, executor);
-  const compteNumero = modePaiement === 'especes'
-    ? COMPTES_SYSCOHADA.CAISSE
-    : modePaiement === 'cheque'
-      ? '513'
-      : COMPTES_SYSCOHADA.BANQUE;
+  const compteNumero = getCustomerReceiptAccountNumber(modePaiement);
   const compteTresorerie = await getCompteByNumero(entrepriseId, compteNumero, executor);
 
-  const ecrituresLignes = [];
-
-  if (compteTresorerie) {
-    ecrituresLignes.push({
-      compteComptableId: compteTresorerie.id,
-      debit: montant,
-      credit: 0,
-      libelle: `Encaissement ${modePaiement} - ${reference}`
-    });
-  }
-
-  if (compte411) {
-    ecrituresLignes.push({
-      compteComptableId: compte411.id,
-      debit: 0,
-      credit: montant,
-      libelle: `Règlement ${clientNom}`
-    });
-  }
+  const ecrituresLignes = compteTresorerie && compte411
+    ? buildCustomerReceiptLines({
+      settlementAccountId: compteTresorerie.id,
+      customerAccountId: compte411.id,
+      amount: montant,
+      modePaiement,
+      reference,
+    })
+    : [];
 
   if (ecrituresLignes.length < 2) {
     console.warn('Pas assez de comptes comptables pour créer écriture paiement client');

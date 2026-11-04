@@ -20,13 +20,20 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AccountLedgerResponse,
   AiFailureResponse,
   AnalyzeClientPayments200,
+  BankAccountsResponse,
+  ChequeDepositInput,
   ConfirmPhotoExpense200,
+  CustomerPaymentInput,
   GetAiStatus200,
+  GoodsReturnInput,
   HealthStatus,
   LitePurchaseInput,
+  OperationResponse,
   PaymentAnalysisInput,
+  PendingChecksResponse,
   PhotoConfirmationInput,
   PhotoDuplicateConflict,
   PhotoPreparationInput,
@@ -34,6 +41,7 @@ import type {
   PurchaseResponse,
   PurchasesResponse,
   SupplierInput,
+  SupplierPaymentInput,
   SupplierResponse,
   SuppliersResponse
 } from './api.schemas';
@@ -688,6 +696,705 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getCreateLitePurchaseMutationOptions(options));
     }
+
+export const getRecordCustomerPaymentUrl = (id: number,) => {
+
+
+
+
+  return `/api/factures/${id}/paiement`
+}
+
+export const recordCustomerPayment = async (id: number,
+    customerPaymentInput: CustomerPaymentInput, options?: Parameters<typeof customFetch>[1]): Promise<OperationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<OperationResponse>(getRecordCustomerPaymentUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(customerPaymentInput)
+  }
+);}
+
+
+
+
+
+export const getRecordCustomerPaymentMutationKey = () => ['recordCustomerPayment'] as const;
+
+export const getRecordCustomerPaymentMutationOptions = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordCustomerPayment>>, TError,RecordCustomerPaymentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recordCustomerPayment>>, TError,RecordCustomerPaymentMutationVariables, TContext> => {
+
+const mutationKey = getRecordCustomerPaymentMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recordCustomerPayment>>, RecordCustomerPaymentMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  recordCustomerPayment(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecordCustomerPaymentMutationResult = NonNullable<Awaited<ReturnType<typeof recordCustomerPayment>>>
+    export type RecordCustomerPaymentMutationBody = BodyType<CustomerPaymentInput>
+    export type RecordCustomerPaymentMutationError = ErrorType<AiFailureResponse>
+    export type RecordCustomerPaymentMutationVariables = {id: number;data: BodyType<CustomerPaymentInput>}
+
+    export const useRecordCustomerPayment = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordCustomerPayment>>, TError,RecordCustomerPaymentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recordCustomerPayment>>,
+        TError,
+        RecordCustomerPaymentMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRecordCustomerPaymentMutationOptions(options));
+    }
+
+export const getCreateCustomerReturnUrl = (id: number,) => {
+
+
+
+
+  return `/api/factures/${id}/retours`
+}
+
+export const createCustomerReturn = async (id: number,
+    goodsReturnInput: GoodsReturnInput, options?: Parameters<typeof customFetch>[1]): Promise<OperationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<OperationResponse>(getCreateCustomerReturnUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(goodsReturnInput)
+  }
+);}
+
+
+
+
+
+export const getCreateCustomerReturnMutationKey = () => ['createCustomerReturn'] as const;
+
+export const getCreateCustomerReturnMutationOptions = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCustomerReturn>>, TError,CreateCustomerReturnMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createCustomerReturn>>, TError,CreateCustomerReturnMutationVariables, TContext> => {
+
+const mutationKey = getCreateCustomerReturnMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCustomerReturn>>, CreateCustomerReturnMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createCustomerReturn(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateCustomerReturnMutationResult = NonNullable<Awaited<ReturnType<typeof createCustomerReturn>>>
+    export type CreateCustomerReturnMutationBody = BodyType<GoodsReturnInput>
+    export type CreateCustomerReturnMutationError = ErrorType<AiFailureResponse>
+    export type CreateCustomerReturnMutationVariables = {id: number;data: BodyType<GoodsReturnInput>}
+
+    export const useCreateCustomerReturn = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCustomerReturn>>, TError,CreateCustomerReturnMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createCustomerReturn>>,
+        TError,
+        CreateCustomerReturnMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateCustomerReturnMutationOptions(options));
+    }
+
+export const getRecordSupplierPaymentUrl = (id: number,) => {
+
+
+
+
+  return `/api/achats/${id}/paiement`
+}
+
+export const recordSupplierPayment = async (id: number,
+    supplierPaymentInput: SupplierPaymentInput, options?: Parameters<typeof customFetch>[1]): Promise<OperationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<OperationResponse>(getRecordSupplierPaymentUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(supplierPaymentInput)
+  }
+);}
+
+
+
+
+
+export const getRecordSupplierPaymentMutationKey = () => ['recordSupplierPayment'] as const;
+
+export const getRecordSupplierPaymentMutationOptions = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordSupplierPayment>>, TError,RecordSupplierPaymentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recordSupplierPayment>>, TError,RecordSupplierPaymentMutationVariables, TContext> => {
+
+const mutationKey = getRecordSupplierPaymentMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recordSupplierPayment>>, RecordSupplierPaymentMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  recordSupplierPayment(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecordSupplierPaymentMutationResult = NonNullable<Awaited<ReturnType<typeof recordSupplierPayment>>>
+    export type RecordSupplierPaymentMutationBody = BodyType<SupplierPaymentInput>
+    export type RecordSupplierPaymentMutationError = ErrorType<AiFailureResponse>
+    export type RecordSupplierPaymentMutationVariables = {id: number;data: BodyType<SupplierPaymentInput>}
+
+    export const useRecordSupplierPayment = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordSupplierPayment>>, TError,RecordSupplierPaymentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recordSupplierPayment>>,
+        TError,
+        RecordSupplierPaymentMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRecordSupplierPaymentMutationOptions(options));
+    }
+
+export const getCreateSupplierReturnUrl = (id: number,) => {
+
+
+
+
+  return `/api/achats/${id}/retours`
+}
+
+export const createSupplierReturn = async (id: number,
+    goodsReturnInput: GoodsReturnInput, options?: Parameters<typeof customFetch>[1]): Promise<OperationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<OperationResponse>(getCreateSupplierReturnUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(goodsReturnInput)
+  }
+);}
+
+
+
+
+
+export const getCreateSupplierReturnMutationKey = () => ['createSupplierReturn'] as const;
+
+export const getCreateSupplierReturnMutationOptions = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSupplierReturn>>, TError,CreateSupplierReturnMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSupplierReturn>>, TError,CreateSupplierReturnMutationVariables, TContext> => {
+
+const mutationKey = getCreateSupplierReturnMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSupplierReturn>>, CreateSupplierReturnMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createSupplierReturn(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSupplierReturnMutationResult = NonNullable<Awaited<ReturnType<typeof createSupplierReturn>>>
+    export type CreateSupplierReturnMutationBody = BodyType<GoodsReturnInput>
+    export type CreateSupplierReturnMutationError = ErrorType<AiFailureResponse>
+    export type CreateSupplierReturnMutationVariables = {id: number;data: BodyType<GoodsReturnInput>}
+
+    export const useCreateSupplierReturn = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSupplierReturn>>, TError,CreateSupplierReturnMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createSupplierReturn>>,
+        TError,
+        CreateSupplierReturnMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateSupplierReturnMutationOptions(options));
+    }
+
+export const getGetCustomerAccountLedgerUrl = (id: number,) => {
+
+
+
+
+  return `/api/clients/${id}/compte`
+}
+
+export const getCustomerAccountLedger = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<AccountLedgerResponse> => {
+
+  return customFetch<AccountLedgerResponse>(getGetCustomerAccountLedgerUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCustomerAccountLedgerQueryKey = (id: number,) => {
+    return [
+    `/api/clients/${id}/compte`
+    ] as const;
+    }
+
+
+export const getGetCustomerAccountLedgerQueryOptions = <TData = Awaited<ReturnType<typeof getCustomerAccountLedger>>, TError = ErrorType<AiFailureResponse>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCustomerAccountLedger>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCustomerAccountLedgerQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCustomerAccountLedger>>> = ({ signal }) => getCustomerAccountLedger(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCustomerAccountLedger>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCustomerAccountLedgerQueryResult = NonNullable<Awaited<ReturnType<typeof getCustomerAccountLedger>>>
+export type GetCustomerAccountLedgerQueryError = ErrorType<AiFailureResponse>
+
+
+
+export function useGetCustomerAccountLedger<TData = Awaited<ReturnType<typeof getCustomerAccountLedger>>, TError = ErrorType<AiFailureResponse>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCustomerAccountLedger>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCustomerAccountLedgerQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetSupplierAccountLedgerUrl = (id: number,) => {
+
+
+
+
+  return `/api/fournisseurs/${id}/compte`
+}
+
+export const getSupplierAccountLedger = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<AccountLedgerResponse> => {
+
+  return customFetch<AccountLedgerResponse>(getGetSupplierAccountLedgerUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSupplierAccountLedgerQueryKey = (id: number,) => {
+    return [
+    `/api/fournisseurs/${id}/compte`
+    ] as const;
+    }
+
+
+export const getGetSupplierAccountLedgerQueryOptions = <TData = Awaited<ReturnType<typeof getSupplierAccountLedger>>, TError = ErrorType<AiFailureResponse>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSupplierAccountLedger>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSupplierAccountLedgerQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSupplierAccountLedger>>> = ({ signal }) => getSupplierAccountLedger(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSupplierAccountLedger>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSupplierAccountLedgerQueryResult = NonNullable<Awaited<ReturnType<typeof getSupplierAccountLedger>>>
+export type GetSupplierAccountLedgerQueryError = ErrorType<AiFailureResponse>
+
+
+
+export function useGetSupplierAccountLedger<TData = Awaited<ReturnType<typeof getSupplierAccountLedger>>, TError = ErrorType<AiFailureResponse>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSupplierAccountLedger>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSupplierAccountLedgerQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListCustomerChecksToDepositUrl = () => {
+
+
+
+
+  return `/api/cheques-clients`
+}
+
+export const listCustomerChecksToDeposit = async ( options?: Parameters<typeof customFetch>[1]): Promise<PendingChecksResponse> => {
+
+  return customFetch<PendingChecksResponse>(getListCustomerChecksToDepositUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCustomerChecksToDepositQueryKey = () => {
+    return [
+    `/api/cheques-clients`
+    ] as const;
+    }
+
+
+export const getListCustomerChecksToDepositQueryOptions = <TData = Awaited<ReturnType<typeof listCustomerChecksToDeposit>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCustomerChecksToDeposit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCustomerChecksToDepositQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCustomerChecksToDeposit>>> = ({ signal }) => listCustomerChecksToDeposit({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCustomerChecksToDeposit>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListCustomerChecksToDepositQueryResult = NonNullable<Awaited<ReturnType<typeof listCustomerChecksToDeposit>>>
+export type ListCustomerChecksToDepositQueryError = ErrorType<unknown>
+
+
+
+export function useListCustomerChecksToDeposit<TData = Awaited<ReturnType<typeof listCustomerChecksToDeposit>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCustomerChecksToDeposit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListCustomerChecksToDepositQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDepositCustomerCheckUrl = (id: number,) => {
+
+
+
+
+  return `/api/cheques-clients/${id}/depot`
+}
+
+export const depositCustomerCheck = async (id: number,
+    chequeDepositInput: ChequeDepositInput, options?: Parameters<typeof customFetch>[1]): Promise<OperationResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<OperationResponse>(getDepositCustomerCheckUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(chequeDepositInput)
+  }
+);}
+
+
+
+
+
+export const getDepositCustomerCheckMutationKey = () => ['depositCustomerCheck'] as const;
+
+export const getDepositCustomerCheckMutationOptions = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof depositCustomerCheck>>, TError,DepositCustomerCheckMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof depositCustomerCheck>>, TError,DepositCustomerCheckMutationVariables, TContext> => {
+
+const mutationKey = getDepositCustomerCheckMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof depositCustomerCheck>>, DepositCustomerCheckMutationVariables> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  depositCustomerCheck(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DepositCustomerCheckMutationResult = NonNullable<Awaited<ReturnType<typeof depositCustomerCheck>>>
+    export type DepositCustomerCheckMutationBody = BodyType<ChequeDepositInput>
+    export type DepositCustomerCheckMutationError = ErrorType<AiFailureResponse>
+    export type DepositCustomerCheckMutationVariables = {id: number;data: BodyType<ChequeDepositInput>}
+
+    export const useDepositCustomerCheck = <TError = ErrorType<AiFailureResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof depositCustomerCheck>>, TError,DepositCustomerCheckMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof depositCustomerCheck>>,
+        TError,
+        DepositCustomerCheckMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDepositCustomerCheckMutationOptions(options));
+    }
+
+export const getListLiteBankAccountsUrl = () => {
+
+
+
+
+  return `/api/comptes-bancaires-lite`
+}
+
+export const listLiteBankAccounts = async ( options?: Parameters<typeof customFetch>[1]): Promise<BankAccountsResponse> => {
+
+  return customFetch<BankAccountsResponse>(getListLiteBankAccountsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLiteBankAccountsQueryKey = () => {
+    return [
+    `/api/comptes-bancaires-lite`
+    ] as const;
+    }
+
+
+export const getListLiteBankAccountsQueryOptions = <TData = Awaited<ReturnType<typeof listLiteBankAccounts>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLiteBankAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLiteBankAccountsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLiteBankAccounts>>> = ({ signal }) => listLiteBankAccounts({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLiteBankAccounts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListLiteBankAccountsQueryResult = NonNullable<Awaited<ReturnType<typeof listLiteBankAccounts>>>
+export type ListLiteBankAccountsQueryError = ErrorType<unknown>
+
+
+
+export function useListLiteBankAccounts<TData = Awaited<ReturnType<typeof listLiteBankAccounts>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLiteBankAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListLiteBankAccountsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getHealthCheckUrl = () => {
 

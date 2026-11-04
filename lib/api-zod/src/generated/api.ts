@@ -321,6 +321,238 @@ export const CreateLitePurchaseResponse = zod.object({
 })
 
 
+
+
+
+export const RecordCustomerPaymentParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const recordCustomerPaymentBodyMontantExclusiveMin = 0;
+
+export const recordCustomerPaymentBodyReferenceMax = 255;
+
+
+export const recordCustomerPaymentBodyNumeroChequeMax = 100;
+
+export const recordCustomerPaymentBodyBanqueChequeMax = 255;
+
+export const recordCustomerPaymentBodyNotesMax = 2000;
+
+
+
+export const RecordCustomerPaymentBody = zod.object({
+  "montant": zod.number().gt(recordCustomerPaymentBodyMontantExclusiveMin),
+  "modePaiement": zod.enum(['especes', 'virement', 'mobile_money', 'carte_bancaire', 'cheque']),
+  "datePaiement": zod.coerce.date().optional(),
+  "reference": zod.string().max(recordCustomerPaymentBodyReferenceMax).optional(),
+  "compteBancaireId": zod.number().int().min(1).optional(),
+  "numeroCheque": zod.string().max(recordCustomerPaymentBodyNumeroChequeMax).optional(),
+  "banqueCheque": zod.string().max(recordCustomerPaymentBodyBanqueChequeMax).optional(),
+  "notes": zod.string().max(recordCustomerPaymentBodyNotesMax).optional()
+})
+
+export const RecordCustomerPaymentResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string().optional(),
+  "data": zod.record(zod.string(), zod.unknown())
+})
+
+
+
+
+
+export const CreateCustomerReturnParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const createCustomerReturnBodyNotesMax = 2000;
+
+
+export const createCustomerReturnBodyItemsItemQuantiteExclusiveMin = 0;
+
+export const createCustomerReturnBodyItemsMax = 50;
+
+
+
+export const CreateCustomerReturnBody = zod.object({
+  "dateRetour": zod.coerce.date().optional(),
+  "notes": zod.string().max(createCustomerReturnBodyNotesMax).optional(),
+  "items": zod.array(zod.object({
+  "itemId": zod.number().int().min(1),
+  "quantite": zod.number().gt(createCustomerReturnBodyItemsItemQuantiteExclusiveMin),
+  "reintegrerStock": zod.boolean().optional()
+})).min(1).max(createCustomerReturnBodyItemsMax)
+})
+
+export const CreateCustomerReturnResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string().optional(),
+  "data": zod.record(zod.string(), zod.unknown())
+})
+
+
+
+
+
+export const RecordSupplierPaymentParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const recordSupplierPaymentBodyMontantExclusiveMin = 0;
+
+export const recordSupplierPaymentBodyReferenceMax = 255;
+
+
+export const recordSupplierPaymentBodyNotesMax = 2000;
+
+
+
+export const RecordSupplierPaymentBody = zod.object({
+  "montant": zod.number().gt(recordSupplierPaymentBodyMontantExclusiveMin),
+  "modePaiement": zod.enum(['especes', 'virement', 'mobile_money', 'carte_bancaire']),
+  "datePaiement": zod.coerce.date().optional(),
+  "reference": zod.string().max(recordSupplierPaymentBodyReferenceMax).optional(),
+  "compteBancaireId": zod.number().int().min(1).optional(),
+  "notes": zod.string().max(recordSupplierPaymentBodyNotesMax).optional()
+})
+
+export const RecordSupplierPaymentResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string().optional(),
+  "data": zod.record(zod.string(), zod.unknown())
+})
+
+
+
+
+
+export const CreateSupplierReturnParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const createSupplierReturnBodyNotesMax = 2000;
+
+
+export const createSupplierReturnBodyItemsItemQuantiteExclusiveMin = 0;
+
+export const createSupplierReturnBodyItemsMax = 50;
+
+
+
+export const CreateSupplierReturnBody = zod.object({
+  "dateRetour": zod.coerce.date().optional(),
+  "notes": zod.string().max(createSupplierReturnBodyNotesMax).optional(),
+  "items": zod.array(zod.object({
+  "itemId": zod.number().int().min(1),
+  "quantite": zod.number().gt(createSupplierReturnBodyItemsItemQuantiteExclusiveMin),
+  "reintegrerStock": zod.boolean().optional()
+})).min(1).max(createSupplierReturnBodyItemsMax)
+})
+
+export const CreateSupplierReturnResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string().optional(),
+  "data": zod.record(zod.string(), zod.unknown())
+})
+
+
+
+
+
+export const GetCustomerAccountLedgerParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const GetCustomerAccountLedgerResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.object({
+  "tiers": zod.record(zod.string(), zod.unknown()),
+  "mouvements": zod.array(zod.object({
+  "date": zod.string().nullable(),
+  "reference": zod.string().nullable(),
+  "type": zod.enum(['facture', 'paiement', 'retour']),
+  "libelle": zod.string(),
+  "montant": zod.number()
+})),
+  "totaux": zod.object({
+  "factures": zod.number(),
+  "paiements": zod.number(),
+  "retours": zod.number(),
+  "solde": zod.number()
+})
+})
+})
+
+
+
+
+
+export const GetSupplierAccountLedgerParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const GetSupplierAccountLedgerResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.object({
+  "tiers": zod.record(zod.string(), zod.unknown()),
+  "mouvements": zod.array(zod.object({
+  "date": zod.string().nullable(),
+  "reference": zod.string().nullable(),
+  "type": zod.enum(['facture', 'paiement', 'retour']),
+  "libelle": zod.string(),
+  "montant": zod.number()
+})),
+  "totaux": zod.object({
+  "factures": zod.number(),
+  "paiements": zod.number(),
+  "retours": zod.number(),
+  "solde": zod.number()
+})
+})
+})
+
+
+export const ListCustomerChecksToDepositResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.array(zod.record(zod.string(), zod.unknown()))
+})
+
+
+
+
+
+export const DepositCustomerCheckParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+
+
+
+export const DepositCustomerCheckBody = zod.object({
+  "compteBancaireId": zod.number().int().min(1),
+  "dateDepot": zod.coerce.date().optional()
+})
+
+export const DepositCustomerCheckResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string().optional(),
+  "data": zod.record(zod.string(), zod.unknown())
+})
+
+
+export const ListLiteBankAccountsResponse = zod.object({
+  "success": zod.boolean(),
+  "data": zod.array(zod.object({
+  "id": zod.number().int(),
+  "nomCompte": zod.string(),
+  "banque": zod.string().nullish(),
+  "soldeActuel": zod.number(),
+  "actif": zod.boolean()
+}))
+})
+
+
 /**
  * Returns server health status
  * @summary Health check
