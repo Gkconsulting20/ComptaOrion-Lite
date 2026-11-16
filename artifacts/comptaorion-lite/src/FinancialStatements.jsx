@@ -25,19 +25,34 @@ export default function FinancialStatements({ settings, t }) {
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 20000);
     setLoading(true);
     setError('');
-    api.get('/financial-reports', { dateDebut, dateFin })
+    setReport(null);
+    api.get('/financial-reports', { dateDebut, dateFin }, { signal: controller.signal })
       .then((result) => {
+        if (!result?.etatResultat || !result?.bilan || !result?.qualite) {
+          throw new Error(t('Le serveur a renvoyé un rapport incomplet.', 'The server returned an incomplete report.'));
+        }
         if (active) setReport(result);
       })
       .catch((reason) => {
-        if (active) setError(reason?.message || t('Impossible de charger les états financiers.', 'Could not load financial statements.'));
+        if (!active) return;
+        const message = reason?.name === 'AbortError'
+          ? t('Le chargement a pris trop de temps. Vérifiez la connexion puis réessayez.', 'Loading took too long. Check your connection and try again.')
+          : reason?.message || t('Impossible de charger les états financiers.', 'Could not load financial statements.');
+        setError(message);
       })
       .finally(() => {
+        window.clearTimeout(timeoutId);
         if (active) setLoading(false);
       });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [dateDebut, dateFin, requestVersion, t]);
 
   const statement = tab === 'resultat' ? report?.etatResultat : report?.bilan;

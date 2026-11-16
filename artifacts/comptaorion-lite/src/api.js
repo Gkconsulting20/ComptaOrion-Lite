@@ -49,6 +49,7 @@ class ApiClient {
     if (data?.code !== 'TRIAL_EXPIRED') return;
     localStorage.removeItem('token');
     localStorage.removeItem('refreshToken');
+    localStorage.removeItem('sessionId');
     localStorage.removeItem('user');
     window.dispatchEvent(new CustomEvent('lite-trial-expired', { detail: data }));
   }
@@ -113,10 +114,10 @@ class ApiClient {
     }
   }
 
-  async get(endpoint, params = {}) {
+  async get(endpoint, params = {}, options = {}) {
     const queryParams = new URLSearchParams(params);
     const queryString = queryParams.toString();
-    return this.request(queryString ? `${endpoint}?${queryString}` : endpoint, { method: 'GET' });
+    return this.request(queryString ? `${endpoint}?${queryString}` : endpoint, { method: 'GET', ...options });
   }
 
   async post(endpoint, data = {}, options = {}) {

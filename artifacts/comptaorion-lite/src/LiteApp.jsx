@@ -37,6 +37,7 @@ export default function LiteApp({ onLogout }) {
     const onTrialExpired = (event) => {
       localStorage.removeItem('token');
       localStorage.removeItem('refreshToken');
+      localStorage.removeItem('sessionId');
       localStorage.removeItem('user');
       setAccessMessage(event.detail?.error || 'La période d’essai est terminée. Contactez ComptaOrion pour réactiver votre accès.');
       setUser(null);
@@ -48,10 +49,32 @@ export default function LiteApp({ onLogout }) {
     if (!locallyExpired) return;
     localStorage.removeItem('token');
     localStorage.removeItem('refreshToken');
+    localStorage.removeItem('sessionId');
     localStorage.removeItem('user');
     setAccessMessage('La période d’essai est terminée. Contactez ComptaOrion pour réactiver votre accès.');
     setUser(null);
   }, [locallyExpired]);
+  useEffect(() => {
+    const onStorage = (event) => {
+      if (event.key !== null && event.key !== 'token' && event.key !== 'user') return;
+      const token = localStorage.getItem('token');
+      let nextUser = null;
+      try {
+        nextUser = JSON.parse(localStorage.getItem('user') || 'null');
+      } catch {
+        nextUser = null;
+      }
+      if (!token || !nextUser) {
+        setUser(null);
+        setAccessMessage('La session a été fermée dans un autre onglet.');
+        return;
+      }
+      setUser(nextUser);
+      setAccessMessage('');
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
   if (!localStorage.getItem('token') || !user || locallyExpired) {
     return <Login initialMessage={accessMessage} onLoginSuccess={(nextUser) => { setAccessMessage(''); setUser(nextUser); }} />;
   }
@@ -69,7 +92,7 @@ function LiteShell({ user, onLogout }) {
   const [toast, setToast] = useState('');
   const scope = `${user.entrepriseId || 'company-none'}:${user.id || 'user-none'}`;
   const [data, setData] = useState({ clients: [], invoices: [], products: [], expenses: [], lowStock: [], daySummary: null });
-  const t = (fr, en) => settings.language === 'fr' ? fr : en;
+  const t = useCallback((fr, en) => settings.language === 'fr' ? fr : en, [settings.language]);
   const refreshQueue = useCallback(async () => {
     const items = await listQueue(scope);
     setPendingItems(items);
@@ -168,7 +191,20 @@ function LiteShell({ user, onLogout }) {
   }, [data, pendingItems, t]);
   useEffect(() => { load(); refreshQueue(); const on = async () => { setOnline(true); await syncQueue(); await load(); }; const off = () => setOnline(false); const install = (e) => { e.preventDefault(); setInstallPrompt(e); }; window.addEventListener('online', on); window.addEventListener('offline', off); window.addEventListener('beforeinstallprompt', install); return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); window.removeEventListener('beforeinstallprompt', install); }; }, [load, refreshQueue, syncQueue]);
   useEffect(() => { if (toast) { const id = setTimeout(() => setToast(''), 3200); return () => clearTimeout(id); } }, [toast]);
-  const logout = () => { localStorage.removeItem('token'); localStorage.removeItem('refreshToken'); localStorage.removeItem('user'); onLogout?.(); };
+  const logout = () => {
+    const token = localStorage.getItem('token');
+    const sessionId = Number(localStorage.getItem('sessionId'));
+    if (token && Number.isInteger(sessionId) && sessionId > 0) {
+      void fetch(`${api.baseURL}/auth-security/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sessionId }),
+        keepalive: true,
+      }).catch(() => {});
+    }
+    ['token', 'refreshToken', 'sessionId', 'user', 'entrepriseId', 'entreprise'].forEach((key) => localStorage.removeItem(key));
+    onLogout?.();
+  };
   const saveSettings = (next) => { setSettings(next); localStorage.setItem(`lite-settings-${user.id || user.entrepriseId}`, JSON.stringify(next)); setToast(t('Préférences enregistrées', 'Preferences saved')); };
   const nav = [
       ['today', t('Aujourd’hui', 'Today'), '⌂'], ['sales', t('Ventes', 'Sales'), '+'], ['debts', t('Clients & dettes', 'Customers & debts'), '◎'],

@@ -105,20 +105,21 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.post('/logout', authMiddleware, trialAccessMiddleware, async (req, res) => {
+router.post('/logout', authMiddleware, async (req, res) => {
   try {
-    const { sessionId } = req.body;
+    const sessionId = Number(req.body?.sessionId);
     const ipAddress = req.ip || req.connection.remoteAddress;
 
-    if (!sessionId) {
+    if (!Number.isInteger(sessionId) || sessionId < 1) {
       return res.status(400).json({ error: 'Session ID requis' });
     }
 
     const session = await db.query.sessions.findFirst({
       where: and(
-        eq(sessions.id, parseInt(sessionId)),
+        eq(sessions.id, sessionId),
         eq(sessions.userId, req.user.id),
-        eq(sessions.enterpriseId, req.user.entrepriseId)
+        eq(sessions.enterpriseId, req.user.entrepriseId),
+        isNull(sessions.logoutAt)
       )
     });
 
@@ -127,8 +128,14 @@ router.post('/logout', authMiddleware, trialAccessMiddleware, async (req, res) =
     }
 
     await db.update(sessions).set({
-      logoutAt: new Date()
-    }).where(eq(sessions.id, parseInt(sessionId)));
+      logoutAt: new Date(),
+      refreshTokenHash: crypto.createHash('sha256').update(crypto.randomBytes(32)).digest('hex'),
+    }).where(and(
+      eq(sessions.id, sessionId),
+      eq(sessions.userId, req.user.id),
+      eq(sessions.enterpriseId, req.user.entrepriseId),
+      isNull(sessions.logoutAt),
+    ));
 
     await db.insert(auditConnexions).values({
       userId: req.user.id,
@@ -179,7 +186,8 @@ router.post('/refresh', async (req, res) => {
       where: and(
         eq(sessions.userId, user.id),
         eq(sessions.refreshTokenHash, refreshTokenHash),
-        gt(sessions.expiresAt, new Date())
+        gt(sessions.expiresAt, new Date()),
+        isNull(sessions.logoutAt)
       )
     });
 
