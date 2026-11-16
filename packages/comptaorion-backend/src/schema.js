@@ -664,6 +664,22 @@ export const rapprochementsBancaires = pgTable('rapprochements_bancaires', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+export const lignesRapprochementBancaire = pgTable('rapprochement_lignes_bancaires', {
+  id: serial('id').primaryKey(),
+  entrepriseId: integer('entreprise_id').references(() => entreprises.id).notNull(),
+  rapprochementId: integer('rapprochement_id').references(() => rapprochementsBancaires.id, { onDelete: 'cascade' }).notNull(),
+  transactionId: integer('transaction_id').references(() => transactionsTresorerie.id),
+  numeroLigne: integer('numero_ligne').notNull(),
+  dateOperation: date('date_operation').notNull(),
+  description: text('description').notNull().default(''),
+  reference: varchar('reference', { length: 255 }),
+  montant: decimal('montant', { precision: 15, scale: 2 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (table) => ({
+  reconciliationLineUnique: uniqueIndex('rapprochement_ligne_no_unique').on(table.rapprochementId, table.numeroLigne),
+  transactionMatchUnique: uniqueIndex('rapprochement_transaction_unique').on(table.transactionId),
+}));
+
 // ==========================================
 // MODULE 1: COMPTABILITÉ GÉNÉRALE
 // ==========================================

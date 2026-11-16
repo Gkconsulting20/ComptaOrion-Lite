@@ -11,6 +11,7 @@ import financialReportsRoutes from './routes/financial-reports.js';
 import aiRoutes from './routes/ai.js';
 import litePurchasesRoutes from './routes/lite-purchases.js';
 import liteAccountingRoutes from './routes/lite-accounting.js';
+import bankReconciliationRoutes from './routes/bank-reconciliation.js';
 import saasPlatformAdminRoutes, { requirePlatformOwner } from './routes/saas-platform-admin.js';
 import commercialPortalRoutes from './routes/commercial-portal.js';
 import { authMiddleware, entrepriseIsolation } from './auth.js';
@@ -21,6 +22,7 @@ import { trialAccessMiddleware } from './trial-access.js';
 const app = express();
 // Larger body only for transient photo inference, not for all API endpoints.
 app.use('/api/ai/prepare-photo', express.json({ limit: '6mb' }));
+app.use('/api/bank-reconciliations', express.json({ limit: '4mb' }));
 app.use(express.json({ limit: '100kb' }));
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', application: 'ComptaOrion Lite' }));
 app.get('/api/healthz', (_req, res) => res.json({ status: 'ok', application: 'ComptaOrion Lite' }));
@@ -37,6 +39,7 @@ app.use('/api/financial-reports', financialReportsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api', litePurchasesRoutes);
 app.use('/api', liteAccountingRoutes);
+app.use('/api/bank-reconciliations', bankReconciliationRoutes);
 app.use((error, _req, res, next) => {
   if (error.type === 'entity.too.large') return res.status(413).json({ success: false, message: 'Photo trop volumineuse (4 Mio maximum).' });
   if (error.type === 'entity.parse.failed') return res.status(400).json({ success: false, message: 'Corps JSON invalide.' });

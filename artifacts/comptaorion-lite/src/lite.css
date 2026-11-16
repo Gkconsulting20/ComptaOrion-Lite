@@ -1144,10 +1144,14 @@
     z-index: 5;
     display: flex;
     height: 68px;
-    justify-content: space-around;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
     background: var(--lite-ink);
   }
+  .lite-bottom-nav::-webkit-scrollbar { display: none; }
   .lite-bottom-nav button {
+    flex: 0 0 52px;
     display: grid;
     gap: 3px;
     place-items: center;
