@@ -9,11 +9,11 @@ ComptaOrion Lite doit utiliser une base de données indépendante et de nouveaux
 
 **How to apply:** conserver cette séparation lors de toute configuration, migration ou publication.
 
-Pour le moment, l’application et sa base de test restent sur Replit. Une base PostgreSQL Render est envisagée plus tard, mais ne doit pas être créée avant que l’utilisateur le demande.
+La base principale de Lite est désormais sur Neon. L’utilisateur a précisé que les clients n’ont pas encore commencé les essais et que le logiciel est encore en correction.
 
-**Why:** l’utilisateur l’a précisé le 26 octobre 2026 après avoir choisi de tester d’abord sur Replit.
+**Why:** après avoir envisagé Render et une branche de test séparée, l’utilisateur a demandé d’appliquer la migration du rapprochement sur la base principale.
 
-**How to apply:** vérifier les parcours de test sur la base Replit actuelle; ne pas migrer, créer ou connecter Render prématurément.
+**How to apply:** vérifier la connexion active plutôt que supposer une base Replit. Cette autorisation portait sur la migration du rapprochement, pas sur toutes les futures migrations. Ne pas créer ou connecter Render sans nouvelle demande.
 
 Avant une inscription de test, vérifier que le schéma existe dans la base réellement utilisée par le serveur, pas seulement dans l’éditeur ou un ancien historique de configuration.
 
