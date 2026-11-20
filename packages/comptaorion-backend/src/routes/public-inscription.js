@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { createRequire } from 'module';
 import crypto from 'crypto';
 import emailService from '../services/emailService.js';
+import { calculerOffreAbonnement, commissionSur, montantPayant } from '../saas-offre.js';
 
 const require = createRequire(import.meta.url);
 const fedapayModule = require('fedapay');
@@ -243,8 +244,15 @@ router.post('/inscription', async (req, res) => {
       return res.status(404).json({ error: 'Plan non trouvé' });
     }
 
-    // Calculer le montant total
-    const montantTotal = parseFloat(plan.prix) * parseInt(dureeEnMois);
+    // Calculer le montant total : offre « 2 mois gratuits » — le client
+    // paie prix × (durée − 2) ; la facturation commence au 3e mois.
+    const dureeMois = parseInt(dureeEnMois, 10);
+    if (!Number.isSafeInteger(dureeMois) || dureeMois < 1) {
+      return res.status(400).json({
+        error: 'La durée de l’abonnement doit être d’au moins 1 mois.'
+      });
+    }
+    const montantTotal = montantPayant(plan.prix, dureeMois);
 
     // Créer une transaction en attente
     const inscriptionData = {
@@ -478,19 +486,35 @@ router.post('/webhook/fedapay', async (req, res) => {
           .where(eq(saasClients.entrepriseId, entreprise[0].id))
           .limit(1);
 
-        // Créer nouvel abonnement (renouvellement)
+        // Créer nouvel abonnement (renouvellement) — offre « 2 mois
+        // gratuits » : le montant total payé couvre les mois payants
+        // (durée − 2) ; le montant mensuel reste le prix du plan (il
+        // sert au MRR une fois la facturation commencée).
+        const [planRenouvellement] = await db.select()
+          .from(plansAbonnement)
+          .where(eq(plansAbonnement.id, inscriptionEnAttente.planId))
+          .limit(1);
+        if (!planRenouvellement) {
+          console.error('Plan introuvable pour le renouvellement:', inscriptionEnAttente.planId);
+          return res.status(400).json({ error: 'Plan introuvable' });
+        }
         const dateDebut = new Date();
-        const dateExpiration = new Date(dateDebut);
-        dateExpiration.setMonth(dateExpiration.getMonth() + inscriptionEnAttente.dureeEnMois);
+        const offreRenouvellement = calculerOffreAbonnement({
+          prixMensuel: planRenouvellement.prix,
+          dureeEnMois: inscriptionEnAttente.dureeEnMois,
+          dateDebut,
+        });
 
         const [abonnement] = await db.insert(abonnements).values({
           entrepriseId: entreprise[0].id,
           planId: inscriptionEnAttente.planId,
           statut: 'actif',
           dateDebut,
-          dateExpiration,
-          prochainRenouvellement: dateExpiration,
-          montantMensuel: inscriptionEnAttente.montantTotal / inscriptionEnAttente.dureeEnMois
+          dateExpiration: new Date(offreRenouvellement.dateExpiration),
+          prochainRenouvellement: new Date(offreRenouvellement.dateExpiration),
+          montantMensuel: planRenouvellement.prix,
+          moisGratuits: offreRenouvellement.moisGratuits,
+          dateDebutFacturation: new Date(offreRenouvellement.dateDebutFacturation),
         }).returning();
 
         // Créer la vente de renouvellement
@@ -502,7 +526,8 @@ router.post('/webhook/fedapay', async (req, res) => {
           commission: 0,
           statut: 'confirmée',
           source: 'web',
-          notes: `Renouvellement web - FedaPay ${transaction_id}`
+          notes: `Renouvellement web - FedaPay ${transaction_id} (2 mois gratuits, facturation dès le ${offreRenouvellement.dateDebutFacturation})`,
+          dateEcheanceCommission: new Date(offreRenouvellement.dateDebutFacturation),
         });
         
         // Marquer comme traitée
@@ -568,24 +593,41 @@ router.post('/webhook/fedapay', async (req, res) => {
           : `Inscription web - Paiement FedaPay ${transaction_id}`
       }).returning();
 
-      // Créer l'abonnement
+      // Créer l'abonnement — offre « 2 mois gratuits » : le montant
+      // total payé couvre les mois payants (durée − 2) ; le montant
+      // mensuel reste le prix du plan (il sert au MRR une fois la
+      // facturation commencée).
+      const [planNouveau] = await db.select()
+        .from(plansAbonnement)
+        .where(eq(plansAbonnement.id, inscriptionEnAttente.planId))
+        .limit(1);
+      if (!planNouveau) {
+        console.error('Plan introuvable pour la nouvelle inscription:', inscriptionEnAttente.planId);
+        return res.status(400).json({ error: 'Plan introuvable' });
+      }
       const dateDebut = new Date();
-      const dateExpiration = new Date(dateDebut);
-      dateExpiration.setMonth(dateExpiration.getMonth() + inscriptionEnAttente.dureeEnMois);
+      const offreNouveau = calculerOffreAbonnement({
+        prixMensuel: planNouveau.prix,
+        dureeEnMois: inscriptionEnAttente.dureeEnMois,
+        dateDebut,
+      });
 
       const [abonnement] = await db.insert(abonnements).values({
         entrepriseId: newEntreprise.id,
         planId: inscriptionEnAttente.planId,
         statut: 'actif',
         dateDebut,
-        dateExpiration,
-        prochainRenouvellement: dateExpiration,
-        montantMensuel: inscriptionEnAttente.montantTotal / inscriptionEnAttente.dureeEnMois
+        dateExpiration: new Date(offreNouveau.dateExpiration),
+        prochainRenouvellement: new Date(offreNouveau.dateExpiration),
+        montantMensuel: planNouveau.prix,
+        moisGratuits: offreNouveau.moisGratuits,
+        dateDebutFacturation: new Date(offreNouveau.dateDebutFacturation),
       }).returning();
 
-      // Calculer la commission si parrainage
+      // Calculer la commission si parrainage (10 % du montant payé ;
+      // due seulement à partir du début de facturation).
       const commissionAmount = commercialData
-        ? parseFloat(inscriptionEnAttente.montantTotal) * 0.10
+        ? commissionSur(inscriptionEnAttente.montantTotal, 0.10)
         : 0;
 
       // Créer la vente
@@ -598,8 +640,9 @@ router.post('/webhook/fedapay', async (req, res) => {
         statut: 'confirmée',
         source: commercialData ? 'commercial' : 'web',
         notes: commercialData 
-          ? `Vente via lien parrainage ${commercialData.nom} ${commercialData.prenom} - FedaPay ${transaction_id}`
-          : `Inscription web - FedaPay ${transaction_id}`
+          ? `Vente via lien parrainage ${commercialData.nom} ${commercialData.prenom} - FedaPay ${transaction_id} (2 mois gratuits, facturation dès le ${offreNouveau.dateDebutFacturation})`
+          : `Inscription web - FedaPay ${transaction_id} (2 mois gratuits, facturation dès le ${offreNouveau.dateDebutFacturation})`,
+        dateEcheanceCommission: new Date(offreNouveau.dateDebutFacturation),
       });
       
       // Marquer comme traitée

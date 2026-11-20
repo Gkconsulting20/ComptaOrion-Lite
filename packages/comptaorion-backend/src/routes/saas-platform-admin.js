@@ -11,6 +11,7 @@ import {
   saasVentes,
   users,
 } from '../schema.js';
+import { creerAbonnementPayant } from '../saas-offre.js';
 
 const router = express.Router();
 const OWNER_EMAIL = (process.env.SAAS_PLATFORM_OWNER_EMAIL || 'admin@orionexa.net').trim().toLowerCase();
@@ -70,7 +71,15 @@ router.get('/dashboard', async (req, res) => {
       `),
       db.execute(sql`
         SELECT COUNT(*) FILTER (WHERE statut = 'actif')::int AS abonnements_actifs,
-          COALESCE(SUM(montant_mensuel) FILTER (WHERE statut = 'actif'), 0)::numeric AS revenu_mensuel
+          -- Revenu mensuel (MRR) : un abonnement en période gratuite
+          -- (avant sa date de début de facturation) ne contribue pas ;
+          -- un abonnement sans mois payé (durée ≤ mois gratuits, donc
+          -- expiration ≤ début de facturation) ne contribue jamais.
+          -- Les lignes déjà en base, sans date_debut_facturation, sont
+          -- comptées comme avant (facturation dès le début).
+          COALESCE(SUM(montant_mensuel) FILTER (WHERE statut = 'actif'
+            AND COALESCE(date_debut_facturation, date_debut) <= CURRENT_DATE
+            AND date_expiration > COALESCE(date_debut_facturation, date_debut)), 0)::numeric AS revenu_mensuel
         FROM abonnements
       `),
       db.execute(sql`
@@ -358,6 +367,8 @@ router.get('/abonnements', async (_req, res) => {
       dateExpiration: abonnements.dateExpiration,
       montantMensuel: abonnements.montantMensuel,
       devise: plansAbonnement.devise,
+      moisGratuits: abonnements.moisGratuits,
+      dateDebutFacturation: abonnements.dateDebutFacturation,
     })
       .from(abonnements)
       .leftJoin(entreprises, eq(abonnements.entrepriseId, entreprises.id))
@@ -366,6 +377,41 @@ router.get('/abonnements', async (_req, res) => {
     res.json(list);
   } catch (error) {
     res.status(500).json({ error: 'Impossible de charger les abonnements.' });
+  }
+});
+
+// POST /abonnements — création d'un abonnement payant par
+// l'administrateur de la plateforme (route montée sur /api/saas-admin,
+// protégée par requirePlatformOwner). L'ancienne route équivalente
+// (saas-admin.js) n'est montée nulle part : c'est celle-ci qui est
+// joignable en production. Offre « 2 mois gratuits » : voir saas-offre.js.
+router.post('/abonnements', async (req, res) => {
+  try {
+    const { entrepriseId, planId, dateDebut, dureeEnMois } = req.body || {};
+    const { abonnement, offre, commission } = await creerAbonnementPayant(db, {
+      entrepriseId,
+      planId,
+      dateDebut,
+      dureeEnMois,
+      source: 'commercial',
+    });
+    res.status(201).json({
+      success: true,
+      message: offre.entierementGratuit
+        ? 'Abonnement créé avec succès. Vente enregistrée automatiquement (entièrement gratuit — 2 mois offerts).'
+        : `Abonnement créé avec succès. Vente enregistrée automatiquement (2 mois gratuits, facturation dès le ${offre.dateDebutFacturation}).`,
+      abonnement,
+      offre: {
+        moisGratuits: offre.moisGratuits,
+        moisPayants: offre.moisPayants,
+        montantVente: offre.montantTotal,
+        commission,
+        dateDebutFacturation: offre.dateDebutFacturation,
+      },
+    });
+  } catch (error) {
+    req.log?.error({ err: error }, 'Échec de création de l’abonnement');
+    res.status(error.statut || 500).json({ error: error.message });
   }
 });
 
@@ -380,6 +426,7 @@ router.get('/ventes', async (_req, res) => {
       dateVente: saasVentes.dateVente,
       statut: saasVentes.statut,
       source: saasVentes.source,
+      dateEcheanceCommission: saasVentes.dateEcheanceCommission,
     })
       .from(saasVentes)
       .leftJoin(saasClients, eq(saasVentes.clientId, saasClients.id))

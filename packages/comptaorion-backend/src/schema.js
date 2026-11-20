@@ -1267,6 +1267,13 @@ export const abonnements = pgTable('abonnements', {
   prochainRenouvellement: date('prochain_renouvellement'),
   nombreUtilisateurs: integer('nombre_utilisateurs').default(1),
   montantMensuel: decimal('montant_mensuel', { precision: 10, scale: 2 }).notNull(),
+  // Offre « 2 mois gratuits » (20 nov. 2026) : mois gratuits offerts sur
+  // chaque nouvel abonnement payant, et date à partir de laquelle la
+  // facturation commence (début + mois gratuits). Les lignes déjà en
+  // base ont mois_gratuits = 0 et date_debut_facturation NULL, traitées
+  // comme sans mois gratuit (facturation dès le début).
+  moisGratuits: integer('mois_gratuits').default(0),
+  dateDebutFacturation: date('date_debut_facturation'),
   modeRenouvellement: varchar('mode_renouvellement', { length: 50 }).default('automatique'), // automatique, manuel
   remarques: text('remarques'),
   createdAt: timestamp('created_at').defaultNow(),
@@ -1331,6 +1338,10 @@ export const saasVentes = pgTable('saas_ventes', {
   abonnementId: integer('abonnement_id').references(() => abonnements.id),
   montantVente: decimal('montant_vente', { precision: 15, scale: 2 }).notNull(),
   commission: decimal('commission', { precision: 15, scale: 2 }).default('0'), // 0 pour ventes web
+  // Offre « 2 mois gratuits » (20 nov. 2026) : la commission n'est due
+  // que quand le client paie vraiment, donc à partir du début de
+  // facturation de l'abonnement (début + mois gratuits).
+  dateEcheanceCommission: date('date_echeance_commission'),
   dateVente: timestamp('date_vente').defaultNow(),
   statut: varchar('statut', { length: 50 }).default('confirmée'), // confirmée, annulée
   source: varchar('source', { length: 50 }).default('commercial'), // commercial, web, api

@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { saasCommerciaux, saasClients, saasVentes, plansAbonnement, abonnements, facturesAbonnement, entreprises } from '../schema.js';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
+import { creerAbonnementPayant } from '../saas-offre.js';
 
 const router = express.Router();
 
@@ -29,7 +30,16 @@ router.get('/dashboard', async (req, res) => {
         abonnement_stats AS (
           SELECT 
             COUNT(*) as total_abonnements,
-            COALESCE(SUM(CASE WHEN statut = 'actif' THEN montant_mensuel ELSE 0 END), 0) as mrr_total
+            -- MRR : un abonnement en période gratuite (avant sa date de
+            -- début de facturation) ne contribue pas ; un abonnement sans
+            -- mois payé (durée ≤ mois gratuits, donc expiration ≤ début
+            -- de facturation) ne contribue jamais. Les lignes déjà en
+            -- base, sans date_debut_facturation, sont comptées comme
+            -- avant (facturation dès le début).
+            COALESCE(SUM(CASE WHEN statut = 'actif'
+              AND COALESCE(date_debut_facturation, date_debut) <= CURRENT_DATE
+              AND date_expiration > COALESCE(date_debut_facturation, date_debut)
+              THEN montant_mensuel ELSE 0 END), 0) as mrr_total
           FROM abonnements
         ),
         vente_stats AS (
@@ -307,84 +317,34 @@ router.post('/abonnements', async (req, res) => {
   try {
     const { entrepriseId, planId, dateDebut, dureeEnMois } = req.body;
 
-    // Vérifier que l'entreprise existe et a un client SaaS associé
-    const [clientSaas] = await db.select()
-      .from(saasClients)
-      .where(eq(saasClients.entrepriseId, parseInt(entrepriseId)))
-      .limit(1);
-
-    if (!clientSaas) {
-      return res.status(400).json({ 
-        error: 'Cette entreprise n\'est pas enregistrée comme client SaaS. Veuillez d\'abord créer un client SaaS pour cette entreprise.' 
-      });
-    }
-
-    if (!clientSaas.commercialId) {
-      return res.status(400).json({ 
-        error: 'Ce client SaaS n\'a pas de commercial assigné. L\'automatisation des ventes requiert un commercial assigné.' 
-      });
-    }
-
-    // Récupérer le plan pour obtenir le prix
-    const [plan] = await db.select()
-      .from(plansAbonnement)
-      .where(eq(plansAbonnement.id, parseInt(planId)))
-      .limit(1);
-
-    if (!plan) {
-      return res.status(404).json({ error: 'Plan non trouvé' });
-    }
-
-    // Calculer la date d'expiration
-    const debut = new Date(dateDebut);
-    const expiration = new Date(debut);
-    expiration.setMonth(expiration.getMonth() + (dureeEnMois || 1));
-
-    // Créer l'abonnement
-    const [abonnement] = await db.insert(abonnements).values({
-      entrepriseId: parseInt(entrepriseId),
-      planId: parseInt(planId),
-      statut: 'actif',
-      dateDebut: debut,
-      dateExpiration: expiration,
-      prochainRenouvellement: expiration,
-      montantMensuel: plan.prix
-    }).returning();
-
-    // Récupérer le commercial pour obtenir son taux de commission
-    const [commercial] = await db.select()
-      .from(saasCommerciaux)
-      .where(eq(saasCommerciaux.id, clientSaas.commercialId))
-      .limit(1);
-
-    const tauxCommission = commercial ? 0.10 : 0;
-    const montantVente = parseFloat(plan.prix) * (dureeEnMois || 1);
-    const commission = montantVente * tauxCommission;
-
-    // ✨ CRÉER AUTOMATIQUEMENT UNE VENTE
-    await db.insert(saasVentes).values({
-      commercialId: clientSaas.commercialId,
-      clientId: clientSaas.id,
-      abonnementId: abonnement.id,
-      montantVente: montantVente,
-      commission: commission,
-      statut: 'confirmée',
-      notes: `Vente automatique - Abonnement ${plan.nom} (${dureeEnMois || 1} mois)`
+    // Offre « 2 mois gratuits » : voir saas-offre.js. La création met le
+    // client en statut 'actif' et enregistre automatiquement la vente
+    // (montant = prix × mois payés, commission due à partir du début
+    // de facturation).
+    const { abonnement, offre, commission } = await creerAbonnementPayant(db, {
+      entrepriseId,
+      planId,
+      dateDebut,
+      dureeEnMois,
     });
-
-    // Mettre à jour le statut du client SaaS
-    await db.update(saasClients)
-      .set({ statut: 'actif', updatedAt: new Date() })
-      .where(eq(saasClients.id, clientSaas.id));
 
     res.json({
       success: true,
-      message: 'Abonnement créé avec succès. Vente enregistrée automatiquement.',
-      abonnement
+      message: offre.entierementGratuit
+        ? 'Abonnement créé avec succès. Vente enregistrée automatiquement (entièrement gratuit — 2 mois offerts).'
+        : `Abonnement créé avec succès. Vente enregistrée automatiquement (2 mois gratuits, facturation dès le ${offre.dateDebutFacturation}).`,
+      abonnement,
+      offre: {
+        moisGratuits: offre.moisGratuits,
+        moisPayants: offre.moisPayants,
+        montantVente: offre.montantTotal,
+        commission,
+        dateDebutFacturation: offre.dateDebutFacturation,
+      },
     });
   } catch (error) {
     console.error('Erreur création abonnement:', error);
-    res.status(500).json({ error: error.message });
+    res.status(error.statut || 500).json({ error: error.message });
   }
 });
 
