@@ -299,7 +299,7 @@ router.post('/achats/lite-create', async (req, res) => {
         const incomingQuantity = quantityByProduct.get(product.id) || 0;
         const incomingValue = costByProduct.get(product.id) || 0;
         const previousQuantity = Number(product.quantite || 0);
-        const previousUnitCost = Number(product.coutMoyen || product.prixAchat || 0);
+        const previousUnitCost = Number(product.coutMoyen) || Number(product.prixAchat) || 0;
         const averageCost = round2(
           (previousQuantity * previousUnitCost + incomingValue) / (previousQuantity + incomingQuantity),
         );

@@ -444,7 +444,7 @@ export async function createEcriturePaiementFournisseur(params) {
     libelle: `Paiement ${fournisseurNom} - ${reference}`,
     numeroPiece: reference,
     lignes: ecrituresLignes,
-    valide: false,
+    valide: true,
     executor
   });
 }
@@ -498,7 +498,7 @@ export async function createEcriturePaiementClient(params) {
     libelle: `Encaissement ${clientNom} - ${reference}`,
     numeroPiece: reference,
     lignes: ecrituresLignes,
-    valide: false,
+    valide: true,
     executor
   });
 }

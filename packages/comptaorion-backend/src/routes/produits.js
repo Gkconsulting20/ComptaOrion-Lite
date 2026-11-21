@@ -185,6 +185,7 @@ router.post('/', async (req, res) => {
         quantite: quantite || '0',
         stockMinimum: stockMinimum || '0',
         prixAchat: prixAchat || '0',
+        coutMoyen: prixAchat || '0',
         prixVente: prixVente || '0',
         fournisseurId: fournisseurId || null,
         emplacement: emplacement || null,
