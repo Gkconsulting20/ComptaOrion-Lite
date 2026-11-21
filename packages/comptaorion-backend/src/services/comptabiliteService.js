@@ -576,7 +576,7 @@ const REGLES_COMPTE_CHARGE_LITE = [
   { mots: ['electricite', 'eau', 'energie'], compte: '6051' },
   { mots: ['fourniture', 'papeterie', 'bureau'], compte: '6053' },
   { mots: ['telephone', 'telecommunication', 'internet', 'telecom'], compte: '625' },
-  { mots: ['honoraire', 'avocat', 'expert', 'consultant', 'intermediaire', 'notaire'], compte: '6226' },
+  { mots: ['honoraire', 'avocat', 'expert', 'consultant', 'intermediaire', 'notaire', 'comptable'], compte: '6226' },
   { mots: ['publicite', 'marketing', 'communication', 'affiche'], compte: '623' },
   { mots: ['entretien', 'reparation', 'maintenance'], compte: '615' },
   { mots: ['assurance'], compte: '616' },
@@ -592,11 +592,12 @@ function normaliserTexteCharge(texte) {
 }
 
 export function resolveCompteChargeLite(categorieNom, description) {
-  // Correspondance sur mots entiers (espaces autour) : « eau » ne doit pas
-  // correspondre à « nouveau », « bureau » à « tambour », etc.
-  const texte = ` ${normaliserTexteCharge(categorieNom)} ${normaliserTexteCharge(description)} `;
+  // Correspondance par mot : un mot-clé correspond si un mot du texte
+  // l'égale ou commence par lui (« honoraires », « fournitures », « loyers »).
+  // « eau » ne correspond donc pas à « nouveau » (le mot ne commence pas par « eau »).
+  const mots = `${normaliserTexteCharge(categorieNom)} ${normaliserTexteCharge(description)}`.split(/\s+/).filter(Boolean);
   for (const regle of REGLES_COMPTE_CHARGE_LITE) {
-    if (regle.mots.some((mot) => texte.includes(` ${mot} `))) return regle.compte;
+    if (regle.mots.some((mot) => mots.some((motTexte) => motTexte === mot || motTexte.startsWith(mot)))) return regle.compte;
   }
   return COMPTES_SYSCOHADA.AUTRES_CHARGES_EXTERNES;
 }
