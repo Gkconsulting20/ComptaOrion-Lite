@@ -1,7 +1,7 @@
 import express from 'express';
 import { db } from '../db.js';
-import { 
-  facturesAchat, 
+import {
+  facturesAchat,
   factureAchatItems,
   paiementsFournisseurs,
   fournisseurs,
@@ -10,10 +10,12 @@ import {
   transactionsTresorerie,
   comptesBancaires,
   mouvementsStock,
-  produits
+  produits,
+  entreprises
 } from '../schema.js';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { createEcritureFactureAchat, createEcriturePaiementFournisseur } from '../services/comptabiliteService.js';
+import { tauxTvaEntreprise, calculerTva } from '../utils/tva.js';
 
 const router = express.Router();
 
@@ -218,7 +220,11 @@ router.post('/factures', async (req, res) => {
       totalHT += totalLigne;
     }
 
-    const totalTVA = totalHT * 0.18;
+    // TVA au taux de l'entreprise (0 % valide) — jamais 18 % en dur.
+    const [company] = await db.select({ tauxTva: entreprises.tauxTva }).from(entreprises)
+      .where(eq(entreprises.id, req.entrepriseId)).limit(1);
+    const tauxTva = tauxTvaEntreprise(company);
+    const totalTVA = calculerTva(totalHT, tauxTva);
     const totalTTC = totalHT + totalTVA;
 
     // Créer la facture
@@ -730,7 +736,10 @@ router.post('/factures-avec-rapprochement', async (req, res) => {
     });
 
     const totalHT = totalArticlesHT + totalLogistique;
-    const totalTVA = totalHT * 0.18;
+    // TVA au taux de l'entreprise (0 % valide) — jamais 18 % en dur.
+    const [company] = await db.select({ tauxTva: entreprises.tauxTva }).from(entreprises)
+      .where(eq(entreprises.id, req.entrepriseId)).limit(1);
+    const totalTVA = calculerTva(totalHT, tauxTvaEntreprise(company));
     const totalTTC = totalHT + totalTVA;
 
     // Créer la facture

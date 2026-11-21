@@ -1,7 +1,8 @@
 import express from 'express';
 import { db } from '../db.js';
-import { commandesAchat, commandesAchatItems, produits, fournisseurs, mouvementsStock, coutsLogistiquesCommande } from '../schema.js';
+import { commandesAchat, commandesAchatItems, produits, fournisseurs, mouvementsStock, coutsLogistiquesCommande, entreprises } from '../schema.js';
 import { eq, and, sql, desc } from 'drizzle-orm';
+import { tauxTvaEntreprise, calculerTva } from '../utils/tva.js';
 
 const router = express.Router();
 
@@ -217,7 +218,11 @@ router.post('/', async (req, res) => {
     }
 
     const totalHT = totalArticlesHT + totalLogistique;
-    const totalTVA = totalArticlesHT * 0.18; // TVA à récupérer depuis les paramètres entreprise
+    // TVA au taux de l'entreprise (0 % valide) — jamais 18 % en dur.
+    // La TVA ne porte que sur les articles, pas sur les coûts logistiques.
+    const [company] = await db.select({ tauxTva: entreprises.tauxTva }).from(entreprises)
+      .where(eq(entreprises.id, req.entrepriseId)).limit(1);
+    const totalTVA = calculerTva(totalArticlesHT, tauxTvaEntreprise(company));
     const totalTTC = totalHT + totalTVA;
 
     // Créer la commande

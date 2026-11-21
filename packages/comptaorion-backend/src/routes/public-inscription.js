@@ -7,6 +7,7 @@ import { createRequire } from 'module';
 import crypto from 'crypto';
 import emailService from '../services/emailService.js';
 import { calculerOffreAbonnement, commissionSur, montantPayant } from '../saas-offre.js';
+import { tauxTvaParPays } from '../utils/tva.js';
 
 const require = createRequire(import.meta.url);
 const fedapayModule = require('fedapay');
@@ -539,14 +540,16 @@ router.post('/webhook/fedapay', async (req, res) => {
         return res.json({ success: true, message: 'Renouvellement complété avec succès' });
       }
 
-      // Nouveau client - Créer l'entreprise
-      console.log('Traitement nouveau client en cours');
-      
+      // Nouveau client - Créer l'entreprise. Le taux de TVA est déduit du
+      // pays déclaré (ce flux ne propose pas encore le choix 0 % / 18 % /
+      // personnalisé du formulaire d'inscription libre-service) ; défaut 18 %.
+      const paysEntreprise = inscriptionEnAttente.pays || 'Bénin';
       const [newEntreprise] = await db.insert(entreprises).values({
         nom: inscriptionEnAttente.nomEntreprise,
         email: inscriptionEnAttente.email,
         telephone: inscriptionEnAttente.telephone,
-        pays: inscriptionEnAttente.pays || 'Bénin',
+        pays: paysEntreprise,
+        tauxTva: tauxTvaParPays(paysEntreprise).toFixed(2),
         devise: 'XOF',
         systemeComptable: 'SYSCOHADA'
       }).returning();

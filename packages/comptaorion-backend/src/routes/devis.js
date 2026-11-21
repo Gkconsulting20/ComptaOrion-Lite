@@ -2,6 +2,7 @@ import express from 'express';
 import { db } from '../db.js';
 import { devis, devisItems, factures, factureItems, clients } from '../schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
+import { tauxTvaEntreprise, calculerTva } from '../utils/tva.js';
 
 const router = express.Router();
 
@@ -169,8 +170,9 @@ router.post('/', async (req, res) => {
       .from(sql`entreprises`)
       .where(sql`id = ${req.entrepriseId}`);
 
-    const tauxTva = parseFloat(entreprise?.tauxTva || 18);
-    const totalTVA = totalHT * (tauxTva / 100);
+    // Taux de l'entreprise (0 % valide : ne pas utiliser `|| 18`, 0 est falsy).
+    const tauxTva = tauxTvaEntreprise(entreprise);
+    const totalTVA = calculerTva(totalHT, tauxTva);
     const totalTTC = totalHT + totalTVA;
 
     // Générer le numéro de devis
@@ -294,8 +296,9 @@ router.put('/:id', async (req, res) => {
         .from(sql`entreprises`)
         .where(sql`id = ${req.entrepriseId}`);
 
-      const tauxTva = parseFloat(entreprise?.tauxTva || 18);
-      const totalTVA = totalHT * (tauxTva / 100);
+      // Taux de l'entreprise (0 % valide : ne pas utiliser `|| 18`, 0 est falsy).
+      const tauxTva = tauxTvaEntreprise(entreprise);
+      const totalTVA = calculerTva(totalHT, tauxTva);
       const totalTTC = totalHT + totalTVA;
 
       updateData.totalHT = totalHT.toFixed(2);

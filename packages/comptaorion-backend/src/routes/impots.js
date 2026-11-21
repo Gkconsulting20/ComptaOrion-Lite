@@ -46,26 +46,30 @@ router.get('/tva/resume', async (req, res) => {
     const { dateDebut, dateFin } = req.query;
     const eId = req.entrepriseId;
     
-    // Calculer TVA Collectée (compte 4431) - solde crédit
+    // Calculer TVA Collectée - solde crédit des comptes 443 (parent), 4431
+    // (ventes) et 4432 (prestations). Le compte 4434 (TVA due à l'État) est
+    // EXCLU : il est débité lors du paiement de la TVA, ce n'est pas de la
+    // TVA collectée sur la période.
     const tvaCollecteeData = await db.execute(sql`
       SELECT COALESCE(SUM(le.credit), 0) - COALESCE(SUM(le.debit), 0) as montant
       FROM lignes_ecriture le
       JOIN ecritures e ON le.ecriture_id = e.id
       JOIN comptes_comptables cc ON le.compte_comptable_id = cc.id
       WHERE e.entreprise_id = ${eId}
-      AND cc.numero LIKE '4431%'
+      AND (cc.numero = '443' OR cc.numero LIKE '4431%' OR cc.numero LIKE '4432%')
       ${dateDebut ? sql`AND e.date_ecriture >= ${dateDebut}` : sql``}
       ${dateFin ? sql`AND e.date_ecriture <= ${dateFin}` : sql``}
     `);
-    
-    // Calculer TVA Déductible (compte 4452) - solde débit
+
+    // Calculer TVA Déductible - solde débit des comptes 445 (parent) et
+    // 4451/4452/4453 (immobilisations, achats, services).
     const tvaDeductibleData = await db.execute(sql`
       SELECT COALESCE(SUM(le.debit), 0) - COALESCE(SUM(le.credit), 0) as montant
       FROM lignes_ecriture le
       JOIN ecritures e ON le.ecriture_id = e.id
       JOIN comptes_comptables cc ON le.compte_comptable_id = cc.id
       WHERE e.entreprise_id = ${eId}
-      AND cc.numero LIKE '4452%'
+      AND (cc.numero = '445' OR cc.numero LIKE '445%')
       ${dateDebut ? sql`AND e.date_ecriture >= ${dateDebut}` : sql``}
       ${dateFin ? sql`AND e.date_ecriture <= ${dateFin}` : sql``}
     `);

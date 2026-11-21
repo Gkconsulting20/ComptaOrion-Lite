@@ -13,6 +13,9 @@ const initialRegister = {
   entrepriseEmail: '',
   entrepriseTelephone: '',
   entrepriseAdresse: '',
+  // Taux de TVA choisi à la création (décision Cap, 21 nov. 2026) :
+  // 18 % par défaut, 0 % (exonéré) ou taux personnalisé (0 à 100 %).
+  tauxTva: 18,
   commercialId: new URLSearchParams(window.location.search).get('ref') || '',
 };
 
@@ -20,6 +23,8 @@ export function Login({ onLoginSuccess, initialMessage = '' }) {
   const [mode, setMode] = useState('login');
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [registerData, setRegisterData] = useState(initialRegister);
+  const [tauxTvaChoix, setTauxTvaChoix] = useState('18');
+  const [tauxTvaPerso, setTauxTvaPerso] = useState('');
   const [resetEmail, setResetEmail] = useState('');
   const [error, setError] = useState(initialMessage);
   const [success, setSuccess] = useState('');
@@ -63,9 +68,21 @@ export function Login({ onLoginSuccess, initialMessage = '' }) {
       setError('Le mot de passe doit contenir au moins 12 caractères.');
       return;
     }
+    // Taux de TVA : 18 % par défaut, 0 % ou taux personnalisé (0 à 100 %).
+    let tauxTva = 18;
+    if (tauxTvaChoix === '0') {
+      tauxTva = 0;
+    } else if (tauxTvaChoix === 'personnalise') {
+      const parsed = parseFloat(String(tauxTvaPerso).replace(',', '.'));
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+        setError('Le taux de TVA personnalisé doit être entre 0 et 100 %.');
+        return;
+      }
+      tauxTva = Math.round(parsed * 100) / 100;
+    }
     setLoading(true);
     try {
-      await api.post('/auth/register', registerData);
+      await api.post('/auth/register', { ...registerData, tauxTva });
       setSuccess('Compte créé avec succès ! Vous pouvez maintenant vous connecter.');
       setMode('login');
       setFormData((current) => ({ ...current, email: registerData.email }));
@@ -167,6 +184,18 @@ export function Login({ onLoginSuccess, initialMessage = '' }) {
                 <label>Téléphone
                   <input type="tel" autoComplete="tel" value={registerData.entrepriseTelephone} onChange={(event) => setRegisterData({ ...registerData, entrepriseTelephone: event.target.value })} />
                 </label>
+                <label>Taux de TVA
+                  <select value={tauxTvaChoix} onChange={(event) => setTauxTvaChoix(event.target.value)}>
+                    <option value="18">18 % — taux normal</option>
+                    <option value="0">0 % — exonéré de TVA</option>
+                    <option value="personnalise">Taux personnalisé…</option>
+                  </select>
+                </label>
+                {tauxTvaChoix === 'personnalise' && (
+                  <label>Taux personnalisé (%)
+                    <input type="number" min="0" max="100" step="0.01" placeholder="Ex. : 7,5" value={tauxTvaPerso} onChange={(event) => setTauxTvaPerso(event.target.value)} required />
+                  </label>
+                )}
               </div>
               <button className="auth-submit" type="submit" disabled={loading}>{loading ? 'Création…' : 'Créer mon compte'}<span aria-hidden="true">→</span></button>
               <div className="auth-switch">Déjà inscrit ? <button type="button" onClick={() => changeMode('login')}>Retour à la connexion</button></div>

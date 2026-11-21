@@ -12,6 +12,7 @@ import {
 } from '../auth.js';
 import { initializeSyscohadaForEnterprise } from '../services/syscohadaService.js';
 import { evaluateSaasAccess, getSaasAccess } from '../trial-access.js';
+import { normaliserTauxTva, TAUX_TVA_DEFAUT } from '../utils/tva.js';
 
 const router = express.Router();
 
@@ -31,6 +32,8 @@ router.post('/register', async (req, res) => {
       entrepriseAdresse,
       entrepriseTelephone,
       entrepriseEmail,
+      tauxTva: tauxTvaDemande,
+      entrepriseTauxTva: tauxTvaDemandeAlias,
       commercialId: referralCommercialId,
     } = req.body;
 
@@ -47,6 +50,19 @@ router.post('/register', async (req, res) => {
     }
     if (password.length < 12 || new TextEncoder().encode(password).length > 72) {
       return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 12 caractères et au maximum 72 octets.' });
+    }
+
+    // Taux de TVA choisi à la création de l'entreprise (décision Cap, 21 nov. 2026) :
+    // 0 % (exonéré), 18 % ou taux personnalisé (0 à 100). Défaut 18 % si non renseigné.
+    // 0 est une valeur valide : on distingue « non renseigné » de « invalide ».
+    let tauxTvaEntreprise = TAUX_TVA_DEFAUT;
+    const tauxTvaChoisi = tauxTvaDemande ?? tauxTvaDemandeAlias;
+    if (tauxTvaChoisi !== undefined && tauxTvaChoisi !== null && tauxTvaChoisi !== '') {
+      const tauxNormalise = normaliserTauxTva(tauxTvaChoisi);
+      if (tauxNormalise === null) {
+        return res.status(400).json({ error: 'Le taux de TVA doit être entre 0 et 100.' });
+      }
+      tauxTvaEntreprise = tauxNormalise;
     }
 
     // Vérifier si l'utilisateur existe déjà
@@ -87,6 +103,7 @@ router.post('/register', async (req, res) => {
           adresse: entrepriseAdresse,
           telephone: entrepriseTelephone,
           email: entrepriseEmail || normalizedEmail,
+          tauxTva: tauxTvaEntreprise.toFixed(2),
           actif: true,
         })
         .returning();

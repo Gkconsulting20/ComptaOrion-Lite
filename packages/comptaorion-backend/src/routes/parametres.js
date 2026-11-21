@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { entreprises } from '../schema.js';
 import { eq } from 'drizzle-orm';
 import { logAudit, extractAuditInfo } from '../utils/auditLogger.js';
+import { TAUX_TVA_PAR_PAYS, normaliserTauxTva, tauxTvaParPays } from '../utils/tva.js';
 
 const router = express.Router();
 
@@ -79,48 +80,9 @@ const SYSTEMES_COMPTABLES = [
   }
 ];
 
-// Taux de TVA par pays/région
-const TAUX_TVA = {
-  // Afrique (Zone UEMOA/CEMAC - SYSCOHADA)
-  'Bénin': 18,
-  'Burkina Faso': 18,
-  'Côte d\'Ivoire': 18,
-  'Mali': 18,
-  'Niger': 19,
-  'Sénégal': 18,
-  'Togo': 18,
-  'Cameroun': 19.25,
-  'Gabon': 18,
-  
-  // Afrique du Nord
-  'Maroc': 20,
-  'Tunisie': 19,
-  'Algérie': 19,
-  'Égypte': 14,
-  
-  // Afrique subsaharienne
-  'Afrique du Sud': 15,
-  'Nigeria': 7.5,
-  'Ghana': 12.5,
-  'Kenya': 16,
-  
-  // Europe
-  'France': 20,
-  'Belgique': 21,
-  'Allemagne': 19,
-  'Espagne': 21,
-  'Italie': 22,
-  'Royaume-Uni': 20,
-  'Suisse': 8.1,
-  
-  // Amérique
-  'États-Unis': 0, // Varie par État
-  'Canada': 5, // TPS fédérale (+ taxes provinciales)
-  'Brésil': 17,
-  
-  // Par défaut
-  'default': 18
-};
+// Taux de TVA par pays/région (référentiel partagé, voir utils/tva.js).
+// L'API GET /taux-tva ci-dessous expose cette table telle quelle.
+const TAUX_TVA = TAUX_TVA_PAR_PAYS;
 
 // GET /api/parametres/entreprise - Récupérer les paramètres de l'entreprise courante
 router.get('/entreprise', async (req, res) => {
@@ -190,11 +152,11 @@ router.put('/entreprise', async (req, res) => {
     }
 
     if (tauxTva !== undefined) {
-      const taux = parseFloat(tauxTva);
-      if (isNaN(taux) || taux < 0 || taux > 100) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Le taux de TVA doit être entre 0 et 100' 
+      // 0 % est valide (exonération) : normaliserTauxTva distingue 0 de « invalide ».
+      if (normaliserTauxTva(tauxTva) === null) {
+        return res.status(400).json({
+          success: false,
+          message: 'Le taux de TVA doit être entre 0 et 100'
         });
       }
     }
@@ -245,7 +207,7 @@ router.put('/entreprise', async (req, res) => {
     if (email !== undefined) updateData.email = email;
     if (devise !== undefined) updateData.devise = devise;
     if (symboleDevise !== undefined) updateData.symboleDevise = symboleDevise;
-    if (tauxTva !== undefined) updateData.tauxTva = tauxTva.toString();
+    if (tauxTva !== undefined) updateData.tauxTva = normaliserTauxTva(tauxTva).toFixed(2);
     if (systemeComptable !== undefined) updateData.systemeComptable = systemeComptable;
     if (debutAnneeFiscale !== undefined) updateData.debutAnneeFiscale = debutAnneeFiscale;
     if (finAnneeFiscale !== undefined) updateData.finAnneeFiscale = finAnneeFiscale;
@@ -316,7 +278,8 @@ router.get('/taux-tva', (req, res) => {
   const { pays } = req.query;
   
   if (pays) {
-    const taux = TAUX_TVA[pays] || TAUX_TVA.default;
+    // Ne pas utiliser `TAUX_TVA[pays] || default` : certains pays ont un taux de 0 %.
+    const taux = tauxTvaParPays(pays);
     return res.json({ 
       success: true, 
       data: { pays, taux } 
