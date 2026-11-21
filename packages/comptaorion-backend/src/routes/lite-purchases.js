@@ -14,10 +14,15 @@ import {
   transactionsTresorerie,
 } from '../schema.js';
 import { createEcritureComptable, createEcriturePaiementFournisseur, getCompteByNumero } from '../services/comptabiliteService.js';
-import { calculateEarlyPaymentDiscount } from '../services/liteAccountingRules.js';
+import { buildPurchaseInvoiceNumber, calculateEarlyPaymentDiscount } from '../services/liteAccountingRules.js';
 
 const router = express.Router();
 const round2 = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+// Drizzle enveloppe l'erreur Postgres (DrizzleQueryError) : le code d'erreur
+// (ex. 23505 violation d'unicité) est dans error.cause.code, pas dans error.code.
+// Sans ce repli, chaque violation d'unicité remonte en 500 générique au lieu de 409.
+const pgErrorCode = (error) => error?.code || error?.cause?.code;
 const validDate = (value) => typeof value === 'string'
   && /^\d{4}-\d{2}-\d{2}$/.test(value)
   && !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))
@@ -116,7 +121,7 @@ router.post('/fournisseurs', async (req, res) => {
 
     return res.status(201).json({ success: true, data: presentSupplier(supplier) });
   } catch (error) {
-    if (error?.code === '23505') {
+    if (pgErrorCode(error) === '23505') {
       return res.status(409).json({ success: false, message: 'Ce numéro de fournisseur existe déjà' });
     }
     return res.status(500).json({ success: false, message: 'Impossible de créer le fournisseur' });
@@ -249,17 +254,19 @@ router.post('/achats/lite-create', async (req, res) => {
       const totalTVA = round2(totalHT * tvaRate / 100);
       const totalTTC = round2(totalHT + totalTVA);
       const year = dateFacture.slice(0, 4);
+      // Le numéro inclut l'entreprise (comme les factures de vente FACT-AAAA-ENT-0001) :
+      // factures_achat.numero_facture est unique GLOBALEMENT, donc une numérotation
+      // par entreprise seule (FACT-ACH-2026-0001) entre en collision dès la 2e entreprise
+      // — chaque nouvelle entreprise était bloquée pour son 1er achat (HTTP 500).
       const [lastInvoice] = await tx.select({ numeroFacture: facturesAchat.numeroFacture })
         .from(facturesAchat)
         .where(and(
           eq(facturesAchat.entrepriseId, req.entrepriseId),
-          sql`${facturesAchat.numeroFacture} LIKE ${`FACT-ACH-${year}-%`}`,
+          sql`${facturesAchat.numeroFacture} LIKE ${`FACT-ACH-${year}-${req.entrepriseId}-%`}`,
         ))
         .orderBy(desc(facturesAchat.id))
         .limit(1);
-      const match = lastInvoice?.numeroFacture?.match(new RegExp(`^FACT-ACH-${year}-(\\d+)$`));
-      const nextNumber = String(match ? Number(match[1]) + 1 : 1).padStart(4, '0');
-      const numeroFacture = `FACT-ACH-${year}-${nextNumber}`;
+      const numeroFacture = buildPurchaseInvoiceNumber(year, req.entrepriseId, lastInvoice?.numeroFacture);
 
       const [createdInvoice] = await tx.insert(facturesAchat).values({
         entrepriseId: req.entrepriseId,
@@ -379,11 +386,13 @@ router.post('/achats/lite-create', async (req, res) => {
 
     return res.status(201).json({ success: true, data: invoice });
   } catch (error) {
-    const status = error?.status || (error?.code === '23505' ? 409 : 500);
-    return res.status(status).json({
-      success: false,
-      message: status < 500 ? error.message : 'Impossible d’enregistrer cet achat',
-    });
+    const isDuplicate = pgErrorCode(error) === '23505';
+    const status = error?.status || (isDuplicate ? 409 : 500);
+    let message;
+    if (error?.status) message = error.message;
+    else if (isDuplicate) message = 'Ce numéro de facture d’achat existe déjà';
+    else message = 'Impossible d’enregistrer cet achat';
+    return res.status(status).json({ success: false, message });
   }
 });
 

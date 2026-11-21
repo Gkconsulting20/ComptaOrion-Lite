@@ -238,3 +238,16 @@ export function buildChequeDepositLines({ bankAccountId, chequeAccountId, amount
   assertBalancedJournalLines(lines);
   return lines;
 }
+
+// Numéro de facture d'achat : FACT-ACH-AAAA-ENT-0001.
+// L'entreprise fait partie du numéro (comme les factures de vente
+// FACT-AAAA-ENT-0001) car factures_achat.numero_facture est unique GLOBALEMENT :
+// une numérotation par entreprise seule (FACT-ACH-2026-0001) entre en collision
+// dès la 2e entreprise et bloque son 1er achat (HTTP 500, violation 23505).
+// Un numéro d'un autre format (ancien format sans entreprise, ou autre entreprise)
+// est ignoré : la séquence repart à 0001 pour cette entreprise.
+export function buildPurchaseInvoiceNumber(year, entrepriseId, lastNumeroFacture) {
+  const match = lastNumeroFacture?.match(new RegExp(`^FACT-ACH-${year}-${entrepriseId}-(\\d+)$`));
+  const nextNumber = String(match ? Number(match[1]) + 1 : 1).padStart(4, '0');
+  return `FACT-ACH-${year}-${entrepriseId}-${nextNumber}`;
+}

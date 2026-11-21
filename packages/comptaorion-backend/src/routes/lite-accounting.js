@@ -34,6 +34,20 @@ import { buildThirdPartyLedger } from '../services/accountLedger.js';
 
 const router = express.Router();
 const round2 = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+
+// Lecture tolérante pour les tables optionnelles (retours, ajustements) : sur les
+// bases créées avant la migration 20261103, ces tables n'existent pas encore —
+// leur absence ne doit pas faire échouer tout le relevé (elles sont vides par
+// définition dans ce cas). La migration reste nécessaire pour les fonctionnalités
+// de retours/ajustements (création d'avoirs et de notes).
+const optionalSelect = async (query) => {
+  try {
+    return await query;
+  } catch (error) {
+    console.warn('Relevé tiers : table optionnelle indisponible, ignorée :', error?.cause?.message || error?.message);
+    return [];
+  }
+};
 const validDate = (value) => typeof value === 'string'
   && /^\d{4}-\d{2}-\d{2}$/.test(value)
   && !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`));
@@ -707,16 +721,16 @@ router.get('/clients/:id/compte', async (req, res) => {
         eq(paiements.entrepriseId, req.entrepriseId),
         eq(paiements.clientId, clientId),
       )),
-      db.select().from(retoursMarchandises).where(and(
+      optionalSelect(db.select().from(retoursMarchandises).where(and(
         eq(retoursMarchandises.entrepriseId, req.entrepriseId),
         eq(retoursMarchandises.clientId, clientId),
         eq(retoursMarchandises.type, 'client'),
-      )),
-      db.select().from(ajustementsTiers).where(and(
+      ))),
+      optionalSelect(db.select().from(ajustementsTiers).where(and(
         eq(ajustementsTiers.entrepriseId, req.entrepriseId),
         eq(ajustementsTiers.clientId, clientId),
         eq(ajustementsTiers.type, 'debit_client'),
-      )),
+      ))),
     ]);
     const ledger = buildThirdPartyLedger({
       partyType: 'client',
@@ -752,16 +766,16 @@ router.get('/fournisseurs/:id/compte', async (req, res) => {
         eq(paiementsFournisseurs.entrepriseId, req.entrepriseId),
         eq(paiementsFournisseurs.fournisseurId, supplierId),
       )),
-      db.select().from(retoursMarchandises).where(and(
+      optionalSelect(db.select().from(retoursMarchandises).where(and(
         eq(retoursMarchandises.entrepriseId, req.entrepriseId),
         eq(retoursMarchandises.fournisseurId, supplierId),
         eq(retoursMarchandises.type, 'fournisseur'),
-      )),
-      db.select().from(ajustementsTiers).where(and(
+      ))),
+      optionalSelect(db.select().from(ajustementsTiers).where(and(
         eq(ajustementsTiers.entrepriseId, req.entrepriseId),
         eq(ajustementsTiers.fournisseurId, supplierId),
         eq(ajustementsTiers.type, 'credit_fournisseur'),
-      )),
+      ))),
     ]);
     const ledger = buildThirdPartyLedger({
       partyType: 'fournisseur',
