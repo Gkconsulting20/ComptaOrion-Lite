@@ -38,7 +38,7 @@ function fakeDb({ selectRows = [], journaux = [] } = {}) {
     limit: () => Promise.resolve(queue.shift() || []),
     then: (resolve, reject) => Promise.resolve(queue.shift() || []).then(resolve, reject),
   };
-  return {
+  const fake = {
     insertions,
     query: {
       comptesComptables: { findMany: async () => COMPTES },
@@ -52,6 +52,9 @@ function fakeDb({ selectRows = [], journaux = [] } = {}) {
       },
     }),
   };
+  // La réouverture crée ses contrepassations dans une transaction.
+  fake.transaction = async (cb) => cb(fake);
+  return fake;
 }
 
 async function withApi(fake, run) {
@@ -113,7 +116,9 @@ test("l'aperçu de clôture d'une entreprise en perte reporte le résultat en 12
 
 test("l'exécution de la clôture d'une entreprise en perte crée CLO-2025-001 et AN-2026-001 équilibrées", async () => {
   const fake = fakeDb({
-    selectRows: [ECRITURES_2025, LIGNES_2025],
+    // Garde anti-double-clôture : aucune clôture existante (CLO, AN vides),
+    // puis les écritures et lignes de l'exercice.
+    selectRows: [[], [], ECRITURES_2025, LIGNES_2025],
     journaux: [{ id: 1, code: 'OD' }, { id: 2, code: 'AN' }],
   });
   await withApi(fake, async (request) => {
@@ -143,6 +148,148 @@ test("l'exécution de la clôture d'une entreprise en perte crée CLO-2025-001 e
     assert.deepEqual(
       lignesOuverture.map((l) => [l.compteComptableId, Number(l.debit), Number(l.credit)]),
       [[3, 0, 25000], [5, 25000, 0]],
+    );
+  });
+});
+
+// ==========================================
+// GARDE ANTI-DOUBLE-CLÔTURE ET RÉOUVERTURE
+// ==========================================
+
+// État simulé après une clôture 2025 (perte 25 000) : CLO-2025-001 solde
+// le 613 et reporte la perte en 129 ; AN-2026-001 reprend les soldes.
+const ECRITURE_CLOTURE = {
+  id: 20, numeroEcriture: 'CLO-2025-001', numeroPiece: 'CLOTURE-2025',
+  dateEcriture: '2025-12-31', journalId: 1,
+};
+const ECRITURE_OUVERTURE = {
+  id: 21, numeroEcriture: 'AN-2026-001', numeroPiece: 'OUVERTURE-2026',
+  dateEcriture: '2026-01-01', journalId: 2,
+};
+const LIGNES_CLOTURE = [
+  { compteComptableId: 1, debit: '0', credit: '25000', ecritureId: 20, libelle: 'Solde compte 613 - Loyers' },
+  { compteComptableId: 5, debit: '25000', credit: '0', ecritureId: 20, libelle: "Résultat de l'exercice 2025" },
+];
+const LIGNES_OUVERTURE = [
+  { compteComptableId: 3, debit: '0', credit: '25000', ecritureId: 21, libelle: 'Report à nouveau 57' },
+  { compteComptableId: 5, debit: '25000', credit: '0', ecritureId: 21, libelle: 'Report à nouveau 129' },
+];
+const CONTREPASSATION_CLOTURE = {
+  id: 22, numeroEcriture: 'CLO-2025-001-R', numeroPiece: 'REOUVERTURE-CLOTURE-2025-R1',
+  dateEcriture: '2025-12-31', journalId: 1,
+};
+const MOTIF = 'Correction : exercice rouvert pour ajustement';
+
+test('double clôture refusée : la deuxième exécution retourne 409', async () => {
+  const fake = fakeDb({
+    // 1re exécution : aucune clôture existante. 2e exécution : CLO-2025-001
+    // existe et n\'a pas été contrepassée → garde déclenchée.
+    selectRows: [[], [], ECRITURES_2025, LIGNES_2025, [ECRITURE_CLOTURE], []],
+    journaux: [{ id: 1, code: 'OD' }, { id: 2, code: 'AN' }],
+  });
+  await withApi(fake, async (request) => {
+    const premiere = await request('POST', '/cloture-exercice', { annee: 2025 });
+    assert.equal(premiere.status, 200);
+    assert.equal((await premiere.json()).details.ecritureCloture.numero, 'CLO-2025-001');
+
+    const seconde = await request('POST', '/cloture-exercice', { annee: 2025 });
+    assert.equal(seconde.status, 409);
+    assert.equal((await seconde.json()).error, 'Exercice 2025 déjà clôturé');
+  });
+});
+
+test("réouverture d'un exercice clôturé crée les contrepassations (montants inversés)", async () => {
+  const fake = fakeDb({
+    selectRows: [[ECRITURE_CLOTURE], [ECRITURE_OUVERTURE], LIGNES_CLOTURE, LIGNES_OUVERTURE],
+    journaux: [{ id: 1, code: 'OD' }, { id: 2, code: 'AN' }],
+  });
+  await withApi(fake, async (request) => {
+    const response = await request('POST', '/cloture-exercice/2025/reouverture', { motif: MOTIF });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.success, true);
+    assert.equal(body.details.exercice, 2025);
+    assert.equal(body.details.sequence, 1);
+    assert.equal(body.details.motif, MOTIF);
+    assert.equal(body.details.ecritureContrepassationCloture, 'CLO-2025-001-R');
+    assert.equal(body.details.ecritureContrepassationOuverture, 'AN-2026-001-R');
+
+    // Les deux contrepassations sont créées, avec les bonnes pièces.
+    const ecritures = fake.insertions.filter((i) => i.rows?.numeroEcriture);
+    assert.equal(ecritures.length, 2);
+    assert.deepEqual(
+      ecritures.map((i) => [i.rows.numeroEcriture, i.rows.numeroPiece]),
+      [
+        ['CLO-2025-001-R', 'REOUVERTURE-CLOTURE-2025-R1'],
+        ['AN-2026-001-R', 'REOUVERTURE-OUVERTURE-2025-R1'],
+      ],
+    );
+    // Les lignes sont inversées (débit ↔ crédit) par rapport aux originales.
+    const lignes = fake.insertions.filter((i) => Array.isArray(i.rows) && i.rows[0]?.ecritureId);
+    assert.equal(lignes.length, 2);
+    const lignesContreCloture = lignes[0].rows;
+    assert.deepEqual(
+      lignesContreCloture.map((l) => [l.compteComptableId, Number(l.debit), Number(l.credit)]),
+      [[1, 25000, 0], [5, 0, 25000]],
+    );
+    const lignesContreOuverture = lignes[1].rows;
+    assert.deepEqual(
+      lignesContreOuverture.map((l) => [l.compteComptableId, Number(l.debit), Number(l.credit)]),
+      [[3, 25000, 0], [5, 0, 25000]],
+    );
+    // Audit de la réouverture.
+    const audit = fake.insertions.filter((i) => i.rows?.action === 'REOUVERTURE_EXERCICE');
+    assert.equal(audit.length, 1);
+    assert.equal(audit[0].rows.tableName, 'ecritures');
+  });
+});
+
+test("réouverture d'un exercice jamais clôturé retourne 404 (motif trop court → 400)", async () => {
+  const fake = fakeDb({ selectRows: [[], []] });
+  await withApi(fake, async (request) => {
+    const sansMotif = await request('POST', '/cloture-exercice/2025/reouverture', { motif: 'court' });
+    assert.equal(sansMotif.status, 400);
+    assert.match((await sansMotif.json()).error, /motif de réouverture/);
+
+    const jamaisCloture = await request('POST', '/cloture-exercice/2025/reouverture', { motif: MOTIF });
+    assert.equal(jamaisCloture.status, 404);
+    assert.equal((await jamaisCloture.json()).error, "L'exercice 2025 n'a jamais été clôturé.");
+  });
+});
+
+test('deuxième réouverture refusée : la clôture a déjà été contrepassée', async () => {
+  const fake = fakeDb({
+    selectRows: [[ECRITURE_CLOTURE, CONTREPASSATION_CLOTURE], []],
+  });
+  await withApi(fake, async (request) => {
+    const response = await request('POST', '/cloture-exercice/2025/reouverture', { motif: MOTIF });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error, "L'exercice 2025 a déjà été réouvert.");
+  });
+});
+
+test('nouvelle clôture après réouverture autorisée avec la séquence suivante (-002)', async () => {
+  const fake = fakeDb({
+    // La clôture -001 existe mais a été contrepassée → la garde laisse passer
+    // et la numérotation reprend à -002 (la -001, même contrepassée, n'est
+    // pas réutilisée).
+    selectRows: [[ECRITURE_CLOTURE, CONTREPASSATION_CLOTURE], [ECRITURE_OUVERTURE], ECRITURES_2025, LIGNES_2025],
+    journaux: [{ id: 1, code: 'OD' }, { id: 2, code: 'AN' }],
+  });
+  await withApi(fake, async (request) => {
+    const response = await request('POST', '/cloture-exercice', { annee: 2025 });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.details.ecritureCloture.numero, 'CLO-2025-002');
+    assert.equal(body.details.ecritureOuverture.numero, 'AN-2026-002');
+
+    const ecritures = fake.insertions.filter((i) => i.rows?.numeroEcriture);
+    assert.deepEqual(
+      ecritures.map((i) => [i.rows.numeroEcriture, i.rows.numeroPiece]),
+      [
+        ['CLO-2025-002', 'CLOTURE-2025-2'],
+        ['AN-2026-002', 'OUVERTURE-2026-2'],
+      ],
     );
   });
 });
