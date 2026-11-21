@@ -144,7 +144,7 @@ test('autres entreprises invisibles; une dépense indépendante est enregistrée
     assert.equal(state().depenses.length, 2);
     assert.equal(state().ecritures.length, 1);
     assert.equal(state().lignes_ecriture.length, 2);
-    assert.equal(state().ecritures[0].valide, false);
+    assert.equal(state().ecritures[0].valide, true); // Dépenses Lite validées à la création, comme les ventes (21 nov. 2026).
     assert.equal(state().lignes_ecriture.reduce((total, line) => total + Number(line.debit), 0), 25.5);
     assert.equal(state().lignes_ecriture.reduce((total, line) => total + Number(line.credit), 0), 25.5);
     assert.ok(queries.filter(q => q.table === 'depenses').every(q => q.params[0] === 9));

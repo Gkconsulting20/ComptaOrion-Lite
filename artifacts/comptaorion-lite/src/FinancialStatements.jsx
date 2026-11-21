@@ -85,6 +85,83 @@ export default function FinancialStatements({ settings, t }) {
     printWindow.document.close();
   };
 
+  // Exports Excel / PDF de l'état affiché (résultat ou bilan) sur la période
+  // sélectionnée — même bibliothèques que le rapport du jour (xlsx, jspdf).
+  const exportRows = () => {
+    if (!report || !statement) return null;
+    if (tab === 'resultat') {
+      return {
+        title: 'État de résultat',
+        fileBase: 'Etat_Resultat',
+        head: ['Section', 'Compte', 'Libellé', `Montant (${settings.currency})`],
+        body: [
+          ...statement.produits.map((row) => ['Produits', row.numero, row.nom, Number(row.montant || 0)]),
+          ...statement.charges.map((row) => ['Charges', row.numero, row.nom, Number(row.montant || 0)]),
+        ],
+        totals: [
+          ['Total produits', Number(statement.totalProduits || 0)],
+          ['Total charges', Number(statement.totalCharges || 0)],
+          ['Résultat net', Number(statement.resultatNet || 0)],
+        ],
+      };
+    }
+    return {
+      title: 'Bilan',
+      fileBase: 'Bilan',
+      head: ['Section', 'Compte', 'Libellé', `Montant (${settings.currency})`],
+      body: [
+        ...statement.actif.map((row) => ['Actif', row.numero, row.nom, Number(row.montant || 0)]),
+        ...statement.capitauxEtDettes.map((row) => ['Capitaux et dettes', row.numero, row.nom, Number(row.montant || 0)]),
+      ],
+      totals: [
+        ['Total actif', Number(statement.totalActif || 0)],
+        ['Total capitaux et dettes', Number(statement.totalPassif || 0)],
+        ['Écart', Number(statement.ecart || 0)],
+      ],
+    };
+  };
+
+  const downloadExcel = async () => {
+    const data = exportRows();
+    if (!data) return;
+    const mod = await import('xlsx');
+    const XLSX = mod.default && mod.default.utils ? mod.default : mod;
+    const rows = [
+      [`ComptaOrion Lite — ${data.title}`],
+      ['Période', `${report.dateDebut} au ${report.dateFin}`],
+      [],
+      data.head,
+      ...data.body,
+      [],
+      ...data.totals.map(([label, value]) => [label, '', '', value]),
+    ];
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    sheet['!cols'] = [{ wch: 20 }, { wch: 12 }, { wch: 42 }, { wch: 20 }];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, data.title);
+    XLSX.writeFile(workbook, `${data.fileBase}_${report.dateDebut}_${report.dateFin}.xlsx`);
+  };
+
+  const downloadPdf = async () => {
+    const data = exportRows();
+    if (!data) return;
+    const { jsPDF } = await import('jspdf');
+    const autoTable = (await import('jspdf-autotable')).default;
+    const clean = (value) => String(value).replace(/ /g, ' ');
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text(`ComptaOrion Lite — ${data.title}`, 14, 18);
+    doc.setFontSize(11);
+    doc.text(`Période : ${report.dateDebut} au ${report.dateFin}`, 14, 28);
+    autoTable(doc, {
+      startY: 36,
+      head: [data.head],
+      body: data.body.map((row) => [row[0], row[1], clean(row[2]), clean(formatAmount(row[3], settings.currency))]),
+      foot: data.totals.map(([label, value]) => ['', '', label, clean(formatAmount(value, settings.currency))]),
+    });
+    doc.save(`${data.fileBase}_${report.dateDebut}_${report.dateFin}.pdf`);
+  };
+
   const income = report?.etatResultat;
   const balance = report?.bilan;
   return <section className="financial-statements" aria-labelledby="financial-statements-title">
@@ -94,9 +171,17 @@ export default function FinancialStatements({ settings, t }) {
         <h2 id="financial-statements-title">{t('États financiers', 'Financial statements')}</h2>
         <p className="muted">{t('Consultez votre état de résultat et votre bilan à partir des écritures comptables.', 'View your profit and loss statement and balance sheet from accounting entries.')}</p>
       </div>
-      <button className="outline" type="button" onClick={printStatement} disabled={!report || loading} data-testid="button-print-financial-statement">
-        {t('Imprimer / PDF', 'Print / PDF')}
-      </button>
+      <div className="financial-actions">
+        <button className="outline" type="button" onClick={printStatement} disabled={!report || loading} data-testid="button-print-financial-statement">
+          {t('Imprimer / PDF', 'Print / PDF')}
+        </button>
+        <button className="outline" type="button" onClick={downloadExcel} disabled={!report || loading} data-testid="button-download-financial-excel">
+          {t('Télécharger Excel', 'Download Excel')}
+        </button>
+        <button className="outline" type="button" onClick={downloadPdf} disabled={!report || loading} data-testid="button-download-financial-pdf">
+          {t('Télécharger PDF', 'Download PDF')}
+        </button>
+      </div>
     </div>
 
     <div className="financial-filters">

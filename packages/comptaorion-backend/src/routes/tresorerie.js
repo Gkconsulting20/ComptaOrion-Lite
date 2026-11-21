@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { db } from '../db.js';
-import { transactionsTresorerie, comptesBancaires, factures, facturesAchat, employes, comptesComptables, rapprochementsBancaires } from '../schema.js';
+import { transactionsTresorerie, comptesBancaires, factures, facturesAchat, employes, comptesComptables, rapprochementsBancaires, ecritures } from '../schema.js';
 import { eq, and, like, inArray, or, ne, notInArray, between, sql } from 'drizzle-orm';
+import { createEcritureComptable } from '../services/comptabiliteService.js';
 
 const router = Router();
 
@@ -629,6 +630,53 @@ router.put('/rapprochements/:id/valider', async (req, res) => {
   } catch (err) {
     console.error('Erreur validation rapprochement:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/tresorerie/solde-ouverture-caisse
+// Saisit le solde d'ouverture de caisse d'une entreprise Lite : écriture
+// D 57 Caisse / C 101 Capital social, validée. Sans elle, la caisse finale
+// n'est pas vérifiable et le bilan montre une caisse créditrice dès la
+// première dépense. Un seul solde d'ouverture par entreprise (409 sinon).
+router.post('/solde-ouverture-caisse', async (req, res) => {
+  try {
+    const { montant, date, libelle } = req.body || {};
+    const montantNumerique = Number(montant);
+    if (!Number.isFinite(montantNumerique) || montantNumerique <= 0) {
+      return res.status(400).json({ success: false, message: 'Le montant du solde d’ouverture doit être supérieur à 0.' });
+    }
+    const dateOuverture = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+      ? date
+      : new Date().toISOString().slice(0, 10);
+
+    const existant = await db.select({ id: ecritures.id }).from(ecritures)
+      .where(and(
+        eq(ecritures.entrepriseId, req.entrepriseId),
+        like(ecritures.libelle, 'Solde d’ouverture de caisse%')
+      ))
+      .limit(1);
+    if (existant.length > 0) {
+      return res.status(409).json({ success: false, message: 'Un solde d’ouverture de caisse existe déjà pour cette entreprise.' });
+    }
+
+    const ecriture = await createEcritureComptable({
+      entrepriseId: req.entrepriseId,
+      journalCode: 'CA',
+      journalNom: 'Journal de Caisse',
+      journalType: 'caisse',
+      dateEcriture: dateOuverture,
+      libelle: libelle ? String(libelle) : 'Solde d’ouverture de caisse',
+      numeroPiece: 'OUV-CAISSE',
+      lignes: [
+        { numeroCompte: '57', debit: montantNumerique, credit: 0, libelle: 'Solde d’ouverture de caisse' },
+        { numeroCompte: '101', debit: 0, credit: montantNumerique, libelle: 'Capital — solde d’ouverture de caisse' },
+      ],
+      valide: true,
+    });
+    return res.status(201).json({ success: true, message: 'Solde d’ouverture de caisse enregistré.', data: ecriture });
+  } catch (err) {
+    console.error('Erreur solde d’ouverture de caisse:', err);
+    return res.status(500).json({ success: false, message: 'Impossible d’enregistrer le solde d’ouverture de caisse.' });
   }
 });
 

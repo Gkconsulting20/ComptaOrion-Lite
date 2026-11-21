@@ -28,7 +28,7 @@ export const entreprises = pgTable('entreprises', {
   numeroSiret: varchar('numero_siret', { length: 50 }),
   adresse: text('adresse'),
   ville: varchar('ville', { length: 100 }),
-  pays: varchar('pays', { length: 100 }).default('Côte d\'Ivoire'),
+  pays: varchar('pays', { length: 100 }).default('Togo'),
   telephone: varchar('telephone', { length: 50 }),
   email: varchar('email', { length: 255 }),
   
@@ -39,8 +39,8 @@ export const entreprises = pgTable('entreprises', {
   systemeComptable: systemeComptableEnum('systeme_comptable').default('SYSCOHADA'), // SYSCOHADA, IFRS, PCG
   
   // Année fiscale
-  debutAnneeFiscale: date('debut_annee_fiscale').default('2025-01-01'),
-  finAnneeFiscale: date('fin_annee_fiscale').default('2025-12-31'),
+  debutAnneeFiscale: date('debut_annee_fiscale').default('2026-01-01'),
+  finAnneeFiscale: date('fin_annee_fiscale').default('2026-12-31'),
   
   // Autres paramètres
   numeroTva: varchar('numero_tva', { length: 50 }),

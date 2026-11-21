@@ -119,6 +119,7 @@ export async function createExpense(req, res) {
         description: depense[0].description,
         montant: numericAmount,
         modePaiement,
+        categorieNom: categorie?.nom || null,
         executor: tx
       });
     } else {

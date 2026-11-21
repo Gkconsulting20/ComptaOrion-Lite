@@ -11,6 +11,7 @@ import financialReportsRoutes from './routes/financial-reports.js';
 import aiRoutes from './routes/ai.js';
 import litePurchasesRoutes from './routes/lite-purchases.js';
 import liteAccountingRoutes from './routes/lite-accounting.js';
+import tresorerieRoutes from './routes/tresorerie.js';
 import bankReconciliationRoutes from './routes/bank-reconciliation.js';
 import saasPlatformAdminRoutes, { requirePlatformOwner } from './routes/saas-platform-admin.js';
 import commercialPortalRoutes from './routes/commercial-portal.js';
@@ -39,6 +40,7 @@ app.use('/api/financial-reports', financialReportsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api', litePurchasesRoutes);
 app.use('/api', liteAccountingRoutes);
+app.use('/api/tresorerie', tresorerieRoutes);
 app.use('/api/bank-reconciliations', bankReconciliationRoutes);
 app.use((error, _req, res, next) => {
   if (error.type === 'entity.too.large') return res.status(413).json({ success: false, message: 'Photo trop volumineuse (4 Mio maximum).' });

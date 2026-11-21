@@ -29,6 +29,21 @@ const COMPTES_SYSCOHADA = {
   ACHATS_MARCHANDISES: '601',
   ACHATS_SERVICES: '61',
   AUTRES_CHARGES_EXTERNES: '62',
+  // Ventilation des dépenses Lite par catégorie (plan SYSCOHADA de Lite) :
+  // loyer -> 613 Locations et charges locatives, transport -> 624,
+  // électricité/eau -> 6051, fournitures de bureau -> 6053, etc.
+  CHARGE_LOYER: '613',
+  CHARGE_TRANSPORT: '624',
+  CHARGE_ELECTRICITE_EAU: '6051',
+  CHARGE_FOURNITURES_BUREAU: '6053',
+  CHARGE_TELECOMMUNICATION: '625',
+  CHARGE_HONORAIRES: '6226',
+  CHARGE_PUBLICITE: '623',
+  CHARGE_ENTRETIEN: '615',
+  CHARGE_ASSURANCE: '616',
+  CHARGE_FRAIS_BANCAIRES: '626',
+  CHARGE_PERSONNEL: '641',
+  CHARGE_IMPOTS: '631',
   CHARGES_PERSONNEL: '64',
   IMPOTS_TAXES: '64',
   VENTES_MARCHANDISES: '701',
@@ -550,6 +565,42 @@ export async function createEcritureDepense(params) {
   });
 }
 
+// Ventilation des dépenses Lite par catégorie (SYSCOHADA).
+// On regarde d'abord le nom de la catégorie, puis le libellé de la dépense
+// (la catégorie de repli « Divers » ne dit rien du contenu).
+// Comptes du plan Lite : loyer 613, transport 624, électricité/eau 6051.
+// Repli : 62 « Autres services extérieurs » (comportement historique).
+const REGLES_COMPTE_CHARGE_LITE = [
+  { mots: ['loyer', 'location', 'bail', 'immobilier', 'loyers'], compte: '613' },
+  { mots: ['transport', 'deplacement', 'carburant', 'essence', 'voyage', 'mission', 'reception'], compte: '624' },
+  { mots: ['electricite', 'eau', 'energie'], compte: '6051' },
+  { mots: ['fourniture', 'papeterie', 'bureau'], compte: '6053' },
+  { mots: ['telephone', 'telecommunication', 'internet', 'telecom'], compte: '625' },
+  { mots: ['honoraire', 'avocat', 'expert', 'consultant', 'intermediaire', 'notaire'], compte: '6226' },
+  { mots: ['publicite', 'marketing', 'communication', 'affiche'], compte: '623' },
+  { mots: ['entretien', 'reparation', 'maintenance'], compte: '615' },
+  { mots: ['assurance'], compte: '616' },
+  { mots: ['bancaire', 'banque', 'frais bancaire'], compte: '626' },
+  { mots: ['salaire', 'personnel', 'paie', 'remuneration'], compte: '641' },
+  { mots: ['impot', 'taxe', 'patente'], compte: '631' },
+];
+
+function normaliserTexteCharge(texte) {
+  return String(texte || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ');
+}
+
+export function resolveCompteChargeLite(categorieNom, description) {
+  // Correspondance sur mots entiers (espaces autour) : « eau » ne doit pas
+  // correspondre à « nouveau », « bureau » à « tambour », etc.
+  const texte = ` ${normaliserTexteCharge(categorieNom)} ${normaliserTexteCharge(description)} `;
+  for (const regle of REGLES_COMPTE_CHARGE_LITE) {
+    if (regle.mots.some((mot) => texte.includes(` ${mot} `))) return regle.compte;
+  }
+  return COMPTES_SYSCOHADA.AUTRES_CHARGES_EXTERNES;
+}
+
 export async function createEcritureDepenseLite(params) {
   const {
     entrepriseId,
@@ -558,10 +609,15 @@ export async function createEcritureDepenseLite(params) {
     description,
     montant,
     modePaiement = 'especes',
+    categorieNom = null,
     executor = db
   } = params;
 
-  const compteCharge = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.AUTRES_CHARGES_EXTERNES, executor);
+  // Ventile la charge par catégorie (613 loyer, 624 transport, 6051 électricité…).
+  // Repli sur 62 si le compte ciblé n'existe pas dans le plan de l'entreprise.
+  const numeroCharge = resolveCompteChargeLite(categorieNom, description);
+  let compteCharge = await getCompteByNumero(entrepriseId, numeroCharge, executor);
+  if (!compteCharge) compteCharge = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.AUTRES_CHARGES_EXTERNES, executor);
   const compteTresorerie = modePaiement === 'especes'
     ? await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CAISSE, executor)
     : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.BANQUE, executor);
@@ -585,7 +641,10 @@ export async function createEcritureDepenseLite(params) {
       { compteComptableId: compteCharge.id, debit: montant, credit: 0, libelle: description },
       { compteComptableId: compteTresorerie.id, debit: 0, credit: montant, libelle: description }
     ],
-    valide: false,
+    // Les dépenses Lite sont approuvées à la création : elles sont validées
+    // comme les ventes (sinon l'état de résultat reste « provisoire » sans
+    // aucun parcours de validation dans Lite).
+    valide: true,
     executor
   });
 }
