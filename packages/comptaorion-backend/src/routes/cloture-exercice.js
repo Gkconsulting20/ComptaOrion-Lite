@@ -557,14 +557,19 @@ router.post('/cloture-exercice', async (req, res) => {
       await db.insert(lignesEcritures).values(lignesOuverture);
     }
 
-    // Enregistrer dans l'audit log
+    // Enregistrer dans l'audit log (colonnes conformes au schéma audit_logs :
+    // tableName / recordId / description / nouvelleValeur — entite, entiteId
+    // et details n'existent pas et faisaient planter l'exécution après la
+    // création des écritures CLO/AN, ce qui bloquait ensuite toute nouvelle
+    // tentative via la garde anti-double-clôture)
     await db.insert(auditLogs).values({
       entrepriseId,
       userId: req.userId,
       action: 'CLOTURE_EXERCICE',
-      entite: 'exercice',
-      entiteId: annee.toString(),
-      details: JSON.stringify({
+      tableName: 'ecritures',
+      recordId: ecritureCloture.id,
+      description: `Clôture de l'exercice ${annee} : ${estBenefice ? 'bénéfice' : 'perte'} de ${Math.abs(resultatNet).toLocaleString('fr-FR')} FCFA, résultat reporté en ${compteResultatNumero}`,
+      nouvelleValeur: JSON.stringify({
         annee,
         resultatNet,
         typeResultat: estBenefice ? 'benefice' : 'perte',
