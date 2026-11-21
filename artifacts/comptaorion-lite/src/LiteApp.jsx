@@ -345,5 +345,46 @@ function LiteReports({ data, settings, t }) {
   const pngBlob = (item) => new Promise(resolve => { const lines = item.items || []; const canvas = document.createElement('canvas'); canvas.width = 900; const c = canvas.getContext('2d'); c.font = '22px system-ui'; const wrap = (text, maxWidth) => { const output = []; let current = ''; for (const word of String(text || '').split(/\s+/)) { if (!word) continue; const parts = c.measureText(word).width <= maxWidth ? [word] : word.match(/.{1,24}/g); for (const part of parts) { const candidate = current ? `${current} ${part}` : part; if (c.measureText(candidate).width > maxWidth && current) { output.push(current); current = part; } else current = candidate; } } if (current) output.push(current); return output.length ? output : ['']; }; const rows = lines.map(line => ({ line, descriptionLines: wrap(line.description, 620) })); const rowsHeight = rows.reduce((sum, row) => sum + row.descriptionLines.length * 28 + 54, 0); canvas.height = Math.max(600, 390 + rowsHeight); c.fillStyle = '#f8f2e8'; c.fillRect(0, 0, canvas.width, canvas.height); c.fillStyle = '#172326'; c.font = 'bold 42px system-ui'; c.fillText('ComptaOrion Lite', 60, 90); c.font = '22px system-ui'; c.fillText(`Reçu ${item.numeroFacture || '#' + item.id}`, 60, 150); c.fillText(item.client?.nom || t('Client comptant', 'Cash customer'), 60, 210); let y = 280; rows.forEach(({ line, descriptionLines }) => { c.font = '22px system-ui'; descriptionLines.forEach(chunk => { c.fillText(chunk, 60, y); y += 28; }); c.font = '18px system-ui'; c.fillStyle = '#56615f'; c.fillText(`${line.quantite} × ${money(line.prixUnitaire, settings.currency)}`, 60, y); c.textAlign = 'right'; c.fillText(money(Number(line.quantite) * Number(line.prixUnitaire), settings.currency), 840, y); c.textAlign = 'left'; c.fillStyle = '#172326'; y += 54; }); c.font = 'bold 38px system-ui'; c.textAlign = 'right'; c.fillText(money(item.totalTTC, settings.currency), 840, canvas.height - 70); canvas.toBlob(resolve, 'image/png'); });
   const shareReport = async () => { const text = `Rapport ComptaOrion Lite du ${today()} — ventes ${money(total, settings.currency)}, dépenses ${money(expenseTotal, settings.currency)}, encaissements ${money(received, settings.currency)}, solde de caisse ${money(received - expenseTotal, settings.currency)}`; if (navigator.share) await navigator.share({ title: 'Rapport ComptaOrion Lite', text }); else window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank'); };
   const shareReceipt = async () => { const blob = await pngBlob(receipt); if (!blob) return; const file = new File([blob], 'recu-comptaorion.png', { type: 'image/png' }); if (navigator.share && navigator.canShare?.({ files: [file] })) await navigator.share({ title: 'Reçu ComptaOrion Lite', files: [file] }); else { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = file.name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } };
-  return <><PageHead eyebrow={t('Clarté', 'Clarity')} title={t('Reçus & rapports', 'Receipts & reports')}><p className="muted">{t('Gardez une trace simple, partagez-la partout.', 'Keep a simple record, share it anywhere.')}</p></PageHead><section className="report-hero"><span>{t('Rapport du jour', 'Today’s report')}</span><strong>{money(total, settings.currency)}</strong><small>{sales.length} {t('vente(s)', 'sale(s)')}</small><div><button className="primary" onClick={() => print()}>{t('Imprimer / PDF', 'Print / PDF')}</button><button className="outline light" onClick={shareReport}>{t('Partager', 'Share')}</button></div></section><h2 className="subheading">{t('Derniers reçus', 'Recent receipts')}</h2><section className="list-card">{data.invoices.slice(0, 8).map(i => <div className="invoice-row" key={i.id}><div><strong>{i.client?.nom || t('Client comptant', 'Cash customer')}</strong><small>{i.numeroFacture || `#${i.id}`} · {dateOf(i.dateFacture)}</small></div><button className="outline" onClick={() => openDetail(i)}>{t('Ouvrir', 'Open')}</button></div>)}</section>{receipt && <Modal title={t('Reçu', 'Receipt')} onClose={() => setReceipt(null)}><div className="receipt-preview"><span>ComptaOrion Lite</span><small>{receipt.numeroFacture || `#${receipt.id}`}</small>{receipt.items?.map(x => <p key={x.id || x.description}>{x.description} · {x.quantite} × {money(x.prixUnitaire, settings.currency)}</p>)}<h3>{money(receipt.totalTTC, settings.currency)}</h3><p>{receipt.client?.nom || t('Client comptant', 'Cash customer')}</p></div><div className="form-split"><button className="primary" onClick={shareReceipt}>{t('Partager PNG', 'Share PNG')}</button><button className="outline" onClick={() => print(receipt)}>{t('Imprimer / PDF', 'Print / PDF')}</button></div></Modal>}</>;
+  const downloadExcel = async () => {
+    const day = today();
+    const mod = await import('xlsx');
+    const XLSX = mod.default && mod.default.utils ? mod.default : mod;
+    const rows = [
+      ['ComptaOrion Lite — Rapport du jour'],
+      ['Date', day],
+      [],
+      [`Ventes du jour (${settings.currency})`, total],
+      ['Nombre de ventes', sales.length],
+      [`Encaissements (${settings.currency})`, received],
+      [],
+      ['N°', 'Client', `Total TTC (${settings.currency})`],
+      ...sales.map((invoice) => [invoice.numeroFacture || `#${invoice.id}`, invoice.client?.nom || t('Client comptant', 'Cash customer'), Number(invoice.totalTTC || 0)]),
+    ];
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    sheet['!cols'] = [{ wch: 28 }, { wch: 32 }, { wch: 20 }];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Rapport du jour');
+    XLSX.writeFile(workbook, `Rapport_Jour_${day}.xlsx`);
+  };
+  const downloadPdf = async () => {
+    const day = today();
+    const { jsPDF } = await import('jspdf');
+    const autoTable = (await import('jspdf-autotable')).default;
+    const clean = (value) => String(value).replace(/ /g, ' ');
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text('ComptaOrion Lite — Rapport du jour', 14, 18);
+    doc.setFontSize(11);
+    doc.text(`Date : ${day}`, 14, 28);
+    doc.text(clean(`Ventes du jour : ${money(total, settings.currency)}`), 14, 36);
+    doc.text(`Nombre de ventes : ${sales.length}`, 14, 44);
+    doc.text(clean(`Encaissements : ${money(received, settings.currency)}`), 14, 52);
+    autoTable(doc, {
+      startY: 60,
+      head: [['N°', 'Client', 'Total TTC']],
+      body: sales.map((invoice) => [invoice.numeroFacture || `#${invoice.id}`, invoice.client?.nom || t('Client comptant', 'Cash customer'), clean(money(invoice.totalTTC, settings.currency))]),
+    });
+    doc.save(`Rapport_Jour_${day}.pdf`);
+  };
+  return <><PageHead eyebrow={t('Clarté', 'Clarity')} title={t('Reçus & rapports', 'Receipts & reports')}><p className="muted">{t('Gardez une trace simple, partagez-la partout.', 'Keep a simple record, share it anywhere.')}</p></PageHead><section className="report-hero"><span>{t('Rapport du jour', 'Today’s report')}</span><strong>{money(total, settings.currency)}</strong><small>{sales.length} {t('vente(s)', 'sale(s)')}</small><div><button className="primary" onClick={() => print()}>{t('Imprimer / PDF', 'Print / PDF')}</button><button className="outline light" onClick={shareReport}>{t('Partager', 'Share')}</button><button className="outline light" onClick={downloadExcel}>{t('Télécharger Excel', 'Download Excel')}</button><button className="outline light" onClick={downloadPdf}>{t('Télécharger PDF', 'Download PDF')}</button></div></section><h2 className="subheading">{t('Derniers reçus', 'Recent receipts')}</h2><section className="list-card">{data.invoices.slice(0, 8).map(i => <div className="invoice-row" key={i.id}><div><strong>{i.client?.nom || t('Client comptant', 'Cash customer')}</strong><small>{i.numeroFacture || `#${i.id}`} · {dateOf(i.dateFacture)}</small></div><button className="outline" onClick={() => openDetail(i)}>{t('Ouvrir', 'Open')}</button></div>)}</section>{receipt && <Modal title={t('Reçu', 'Receipt')} onClose={() => setReceipt(null)}><div className="receipt-preview"><span>ComptaOrion Lite</span><small>{receipt.numeroFacture || `#${receipt.id}`}</small>{receipt.items?.map(x => <p key={x.id || x.description}>{x.description} · {x.quantite} × {money(x.prixUnitaire, settings.currency)}</p>)}<h3>{money(receipt.totalTTC, settings.currency)}</h3><p>{receipt.client?.nom || t('Client comptant', 'Cash customer')}</p></div><div className="form-split"><button className="primary" onClick={shareReceipt}>{t('Partager PNG', 'Share PNG')}</button><button className="outline" onClick={() => print(receipt)}>{t('Imprimer / PDF', 'Print / PDF')}</button></div></Modal>}</>;
 }
