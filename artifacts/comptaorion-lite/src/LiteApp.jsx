@@ -319,12 +319,82 @@ function Expenses({ data, settings, t, write, reload }) {
       </div>)}
       {!data.expenses.length && <Empty text={t('Aucune dépense enregistrée.', 'No expenses recorded.')} secondary={t('Ajoutez une sortie pour la retrouver ici.', 'Add an outgoing to see it here.')} />}
     </section>
+    <EmployeesSection t={t} />
     {open && <Modal title={t('Nouvelle dépense', 'New expense')} onClose={() => setOpen(false)}>
       <form className="lite-form" onSubmit={submit}>
         <label>{t('Description', 'Description')}<input autoFocus required value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder={t('Transport, achat, loyer…', 'Transport, supplies, rent…')} /></label>
         <label>{t('Montant', 'Amount')}<input type="number" min="1" required value={form.montant} onChange={(event) => setForm({ ...form, montant: event.target.value })} /></label>
         <label>{t('Mode de paiement', 'Payment method')}<select value={form.modePaiement} onChange={(event) => setForm({ ...form, modePaiement: event.target.value })}><option value="especes">{t('Espèces', 'Cash')}</option><option value="banque">{t('Banque / virement', 'Bank / transfer')}</option></select></label>
         <button className="primary wide">{t('Enregistrer', 'Save expense')}</button>
+      </form>
+    </Modal>}
+  </>;
+}
+function EmployeesSection({ t }) {
+  const [employes, setEmployes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [open, setOpen] = useState(null);
+  const [form, setForm] = useState({ nom: '', prenom: '', telephone: '', email: '', poste: '' });
+  const loadEmployes = useCallback(async () => {
+    setError('');
+    try {
+      const res = await api.get('/depenses/employes/list');
+      setEmployes(unwrap(res));
+    } catch (e) {
+      setError(e?.message || t('Impossible de charger les employés.', 'Could not load employees.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+  useEffect(() => { loadEmployes(); }, [loadEmployes]);
+  const startNew = () => { setForm({ nom: '', prenom: '', telephone: '', email: '', poste: '' }); setOpen('new'); };
+  const startEdit = (employe) => { setForm({ nom: employe.nom || '', prenom: employe.prenom || '', telephone: employe.telephone || '', email: employe.email || '', poste: employe.poste || '' }); setOpen(employe); };
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    try {
+      if (open === 'new') await api.post('/depenses/employes', form);
+      else await api.put(`/depenses/employes/${open.id}`, form);
+      setOpen(null);
+      await loadEmployes();
+    } catch (e) {
+      setError(e?.message || t('Impossible d’enregistrer l’employé.', 'Could not save the employee.'));
+    }
+  };
+  const remove = async (employe) => {
+    if (!window.confirm(t(`Retirer ${employe.prenom || ''} ${employe.nom || ''} de la liste des employés ?`, `Remove ${employe.prenom || ''} ${employe.nom || ''} from the employee list?`))) return;
+    setError('');
+    try {
+      await api.delete(`/depenses/employes/${employe.id}`);
+      await loadEmployes();
+    } catch (e) {
+      setError(e?.message || t('Impossible de retirer l’employé.', 'Could not remove the employee.'));
+    }
+  };
+  return <>
+    <div className="section-title"><h2>{t('Employés', 'Employees')}</h2><span>{employes.length} {t('employé(s)', 'employee(s)')}</span></div>
+    <section className="list-card">
+      {employes.map((employe) => <div className="debt-row" key={employe.id}>
+        <div className="avatar small">{(employe.prenom || employe.nom || '?').slice(0, 1)}</div>
+        <div className="grow"><strong>{employe.prenom} {employe.nom}</strong><small>{[employe.poste, employe.telephone].filter(Boolean).join(' · ') || t('Sans poste', 'No role')}</small></div>
+        <button className="text-button" onClick={() => startEdit(employe)}>{t('Modifier', 'Edit')}</button>
+        <button className="text-button" onClick={() => remove(employe)}>{t('Retirer', 'Remove')}</button>
+      </div>)}
+      {!loading && !employes.length && <Empty text={t('Aucun employé enregistré.', 'No employee recorded.')} secondary={t('Ajoutez vos employés pour les retrouver sur les notes de frais.', 'Add your employees to find them on expense reports.')} />}
+    </section>
+    <button className="outline" style={{ width: '100%', marginTop: 12 }} onClick={startNew}>+ {t('Nouvel employé', 'New employee')}</button>
+    {error && <p className="install-help">{error}</p>}
+    {open && <Modal title={open === 'new' ? t('Nouvel employé', 'New employee') : t('Modifier l’employé', 'Edit employee')} onClose={() => setOpen(null)}>
+      <form className="lite-form" onSubmit={submit}>
+        <div className="form-split">
+          <label>{t('Prénom', 'First name')}<input autoFocus required value={form.prenom} onChange={(e) => setForm({ ...form, prenom: e.target.value })} /></label>
+          <label>{t('Nom', 'Last name')}<input required value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} /></label>
+        </div>
+        <label>{t('Téléphone', 'Phone')}<input value={form.telephone} onChange={(e) => setForm({ ...form, telephone: e.target.value })} /></label>
+        <label>{t('Email', 'Email')}<input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
+        <label>{t('Poste', 'Role')}<input value={form.poste} onChange={(e) => setForm({ ...form, poste: e.target.value })} placeholder={t('Ex. Vendeuse, chauffeur…', 'E.g. Salesperson, driver…')} /></label>
+        <button className="primary wide">{open === 'new' ? t('Ajouter l’employé', 'Add employee') : t('Enregistrer', 'Save')}</button>
       </form>
     </Modal>}
   </>;

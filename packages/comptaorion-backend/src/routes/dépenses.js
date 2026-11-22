@@ -1,7 +1,7 @@
 import express from 'express';
 import { db } from '../db.js';
 import { depenses, categoriesDepenses, approvalsDepenses, remboursementsEmployes, auditLogs, employes, liteIdempotency, entreprises } from '../schema.js';
-import { eq, and, gte, lte, desc } from 'drizzle-orm';
+import { eq, and, gte, lte, desc, asc } from 'drizzle-orm';
 import { createEcritureDepense, createEcritureDepenseLite } from '../services/comptabiliteService.js';
 import { claimIdempotentOperation } from '../middleware/idempotency.js';
 
@@ -34,6 +34,151 @@ router.post('/categories', async (req, res) => {
     res.json(result[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// CRUD EMPLOYÉS (annuaire pour les notes de frais)
+// Seuls les champs simples sont exposés ici : les champs de paie
+// (salaire, CNPS, indemnités, avantages en nature, documents) ne sont
+// pas gérés par ce module et restent nullables dans la table.
+// ==========================================
+
+const EMPLOYE_SIMPLE_FIELDS = ['nom', 'prenom', 'telephone', 'email', 'poste', 'departement', 'matricule', 'dateEmbauche', 'typeContrat'];
+
+function employePayload(body = {}) {
+  const payload = {};
+  for (const field of EMPLOYE_SIMPLE_FIELDS) {
+    const value = body[field];
+    if (value === undefined) continue;
+    payload[field] = value === '' ? null : value;
+  }
+  if (payload.nom !== undefined && payload.nom !== null) payload.nom = String(payload.nom).trim();
+  if (payload.prenom !== undefined && payload.prenom !== null) payload.prenom = String(payload.prenom).trim();
+  return payload;
+}
+
+function isUniqueViolation(error) {
+  return error?.cause?.code === '23505' || error?.code === '23505';
+}
+
+router.get('/employes/list', async (req, res) => {
+  try {
+    const employesList = await db.query.employes.findMany({
+      where: and(eq(employes.entrepriseId, req.entrepriseId), eq(employes.actif, true)),
+      orderBy: [asc(employes.nom), asc(employes.prenom)],
+    });
+    res.json(employesList);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/employes', async (req, res) => {
+  try {
+    const nom = String(req.body.nom || '').trim();
+    const prenom = String(req.body.prenom || '').trim();
+    if (!nom || !prenom) {
+      return res.status(400).json({ error: 'Nom et prénom sont obligatoires.' });
+    }
+    const created = await db.transaction(async (tx) => {
+      const [row] = await tx.insert(employes).values({
+        entrepriseId: req.entrepriseId,
+        ...employePayload(req.body),
+        nom,
+        prenom,
+      }).returning();
+      await tx.insert(auditLogs).values({
+        entrepriseId: req.entrepriseId,
+        userId: req.user?.id || null,
+        action: 'CREATE',
+        tableName: 'employes',
+        recordId: row.id,
+        description: `Employé créé: ${prenom} ${nom}`,
+      });
+      return row;
+    });
+    res.status(201).json(created);
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return res.status(409).json({ error: 'Ce matricule est déjà utilisé par un autre employé.' });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put('/employes/:id', async (req, res) => {
+  try {
+    const employeId = Number(req.params.id);
+    if (!Number.isSafeInteger(employeId) || employeId <= 0) {
+      return res.status(400).json({ error: 'Identifiant d’employé invalide.' });
+    }
+    const updates = employePayload(req.body);
+    if (updates.nom === null || updates.prenom === null) {
+      return res.status(400).json({ error: 'Nom et prénom ne peuvent pas être vides.' });
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'Aucun champ à modifier.' });
+    }
+    const updated = await db.transaction(async (tx) => {
+      const [previous] = await tx.select().from(employes).where(and(
+        eq(employes.id, employeId),
+        eq(employes.entrepriseId, req.entrepriseId),
+      )).limit(1);
+      if (!previous) throw Object.assign(new Error('Employé introuvable.'), { status: 404 });
+      const [row] = await tx.update(employes).set(updates).where(and(
+        eq(employes.id, employeId),
+        eq(employes.entrepriseId, req.entrepriseId),
+      )).returning();
+      await tx.insert(auditLogs).values({
+        entrepriseId: req.entrepriseId,
+        userId: req.user?.id || null,
+        action: 'UPDATE',
+        tableName: 'employes',
+        recordId: row.id,
+        description: `Employé modifié: ${(row.prenom || '').trim()} ${(row.nom || '').trim()}`.trim(),
+      });
+      return row;
+    });
+    res.json(updated);
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return res.status(409).json({ error: 'Ce matricule est déjà utilisé par un autre employé.' });
+    }
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+router.delete('/employes/:id', async (req, res) => {
+  try {
+    const employeId = Number(req.params.id);
+    if (!Number.isSafeInteger(employeId) || employeId <= 0) {
+      return res.status(400).json({ error: 'Identifiant d’employé invalide.' });
+    }
+    const deactivated = await db.transaction(async (tx) => {
+      const [previous] = await tx.select().from(employes).where(and(
+        eq(employes.id, employeId),
+        eq(employes.entrepriseId, req.entrepriseId),
+        eq(employes.actif, true),
+      )).limit(1);
+      if (!previous) throw Object.assign(new Error('Employé introuvable.'), { status: 404 });
+      const [row] = await tx.update(employes).set({ actif: false }).where(and(
+        eq(employes.id, employeId),
+        eq(employes.entrepriseId, req.entrepriseId),
+      )).returning();
+      await tx.insert(auditLogs).values({
+        entrepriseId: req.entrepriseId,
+        userId: req.user?.id || null,
+        action: 'DELETE',
+        tableName: 'employes',
+        recordId: row.id,
+        description: `Employé désactivé: ${(row.prenom || '').trim()} ${(row.nom || '').trim()}`.trim(),
+      });
+      return row;
+    });
+    res.json(deactivated);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 
