@@ -1,8 +1,9 @@
 import express from 'express';
-import { and, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, eq, gt, gte, lte, or, sql } from 'drizzle-orm';
 import { db } from '../db.js';
 import { comptesComptables, ecritures, lignesEcritures } from '../schema.js';
 import { buildFinancialStatements } from '../services/financialStatements.js';
+import { findLatestActiveOpening } from '../services/bilanApresCloture.js';
 
 const router = express.Router();
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -25,6 +26,25 @@ router.get('/', async (req, res) => {
   }
 
   try {
+    // Après une clôture, les soldes du bilan repartent de la dernière
+    // ouverture à nouveaux ACTIVE (écriture AN-{année}-NNN non
+    // contrepassée) : sans cela, les écritures d'avant-clôture ET
+    // l'ouverture qui les reprend sont comptées deux fois (bilan 2027
+    // = 2 × bilan 2026). Sans ouverture active, comportement inchangé.
+    const opening = await findLatestActiveOpening(db, entrepriseId, dateFin);
+    const balanceConditions = [
+      eq(ecritures.entrepriseId, entrepriseId),
+      eq(lignesEcritures.entrepriseId, entrepriseId),
+      eq(comptesComptables.entrepriseId, entrepriseId),
+      lte(ecritures.dateEcriture, dateFin),
+    ];
+    if (opening) {
+      balanceConditions.push(or(
+        eq(ecritures.id, opening.ecritureOuvertureId),
+        gt(ecritures.dateEcriture, new Date(opening.dateEcriture)),
+      ));
+    }
+
     const balanceRows = await db
       .select({
         numero: comptesComptables.numero,
@@ -35,12 +55,7 @@ router.get('/', async (req, res) => {
       .from(lignesEcritures)
       .innerJoin(ecritures, eq(lignesEcritures.ecritureId, ecritures.id))
       .innerJoin(comptesComptables, eq(lignesEcritures.compteComptableId, comptesComptables.id))
-      .where(and(
-        eq(ecritures.entrepriseId, entrepriseId),
-        eq(lignesEcritures.entrepriseId, entrepriseId),
-        eq(comptesComptables.entrepriseId, entrepriseId),
-        lte(ecritures.dateEcriture, dateFin),
-      ))
+      .where(and(...balanceConditions))
       .groupBy(comptesComptables.id, comptesComptables.numero, comptesComptables.nom);
 
     const incomeRows = await db
