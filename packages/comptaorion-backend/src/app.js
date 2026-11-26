@@ -12,6 +12,8 @@ import aiRoutes from './routes/ai.js';
 import litePurchasesRoutes from './routes/lite-purchases.js';
 import liteAccountingRoutes from './routes/lite-accounting.js';
 import clotureExerciceRoutes from './routes/cloture-exercice.js';
+import comptabiliteRoutes from './routes/comptabilite.js';
+import impotsRoutes from './routes/impots.js';
 import tresorerieRoutes from './routes/tresorerie.js';
 import bankReconciliationRoutes from './routes/bank-reconciliation.js';
 import saasPlatformAdminRoutes, { requirePlatformOwner } from './routes/saas-platform-admin.js';
@@ -42,6 +44,14 @@ app.use('/api/ai', aiRoutes);
 app.use('/api', litePurchasesRoutes);
 app.use('/api', liteAccountingRoutes);
 app.use('/api', clotureExerciceRoutes);
+// Comptabilité générale (journaux, grand livre, balance, bilan, compte
+// de résultat) et impôts (résumé TVA, déclarations) : routeurs longtemps
+// non montés (404 « Route non disponible dans Lite »). Aucun conflit de
+// chemin avec les routeurs déjà montés ; la clôture reste dans
+// cloture-exercice.js (extraite de comptabilite.js) et /financial-reports
+// reste la référence des états financiers.
+app.use('/api/comptabilite', comptabiliteRoutes);
+app.use('/api/impots', impotsRoutes);
 app.use('/api/tresorerie', tresorerieRoutes);
 app.use('/api/bank-reconciliations', bankReconciliationRoutes);
 app.use((error, _req, res, next) => {

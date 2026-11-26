@@ -306,7 +306,10 @@ router.post('/declarations/tva', async (req, res) => {
       .select({
         totalTTC: factures.totalTTC,
         totalHT: factures.totalHT,
-        montantTVA: factures.montantTVA
+        // La table factures n'a pas de colonne montantTVA : la TVA est
+        // totalTVA (l'ancien select sur montantTVA faisait échouer la
+        // déclaration en 500, comme côté ComptaOrion).
+        montantTVA: factures.totalTVA
       })
       .from(factures)
       .where(and(

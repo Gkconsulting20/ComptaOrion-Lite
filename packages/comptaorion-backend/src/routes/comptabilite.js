@@ -4,7 +4,8 @@ import {
   plansComptables, comptes, comptesComptables, journaux, ecritures, lignesEcritures, 
   soldesComptes, auditLogs, entreprises 
 } from '../schema.js';
-import { eq, and, desc, gte, lte, sum, sql } from 'drizzle-orm';
+import { eq, and, desc, gt, gte, lte, or, sum, sql } from 'drizzle-orm';
+import { findLatestActiveOpening } from '../services/bilanApresCloture.js';
 
 const router = express.Router();
 
@@ -308,6 +309,11 @@ router.get('/rapports/bilan', async (req, res) => {
       const numero = compte.numero;
       
       // CLASSE 1 - Capitaux propres et dettes financières (solde créditeur = passif)
+      // Contribution SIGNÉE au passif total (-solde) : un compte 129
+      // débiteur (perte reportée) DIMINUE les capitaux propres, au lieu
+      // de les augmenter comme le faisait Math.abs(solde). Même principe
+      // que le correctif 7d13ac1 de ComptaOrion. Le montant AFFICHÉ de la
+      // ligne reste la valeur absolue.
       if (numero.startsWith('1')) {
         const montant = Math.abs(soldeBrut);
         passif.capitaux.push({
@@ -316,7 +322,7 @@ router.get('/rapports/bilan', async (req, res) => {
           nom: compte.nom,
           solde: montant
         });
-        passif.total += montant;
+        passif.total += -soldeBrut;
       }
       // CLASSE 2 - Immobilisations
       else if (numero.startsWith('2')) {
@@ -2181,9 +2187,20 @@ router.get('/bilan', async (req, res) => {
     });
 
     // Calculer les soldes basés sur les écritures validées
+    // Après une clôture, les soldes repartent de la dernière ouverture à
+    // nouveaux ACTIVE (même correctif que /financial-reports) : sans
+    // cela, un bilan demandé sans dateDebut double-compte les soldes
+    // d'avant-clôture et leur reprise AN (bilan 2027 = 2 × bilan 2026).
+    const opening = await findLatestActiveOpening(db, entrepriseId, dateFin);
     const conditions = [eq(lignesEcritures.entrepriseId, entrepriseId)];
     if (dateDebut) conditions.push(gte(ecritures.dateEcriture, new Date(dateDebut)));
     if (dateFin) conditions.push(lte(ecritures.dateEcriture, new Date(dateFin)));
+    if (opening) {
+      conditions.push(or(
+        eq(ecritures.id, opening.ecritureOuvertureId),
+        gt(ecritures.dateEcriture, new Date(opening.dateEcriture))
+      ));
+    }
 
     const lignes = await db
       .select({
@@ -2194,6 +2211,23 @@ router.get('/bilan', async (req, res) => {
       .from(lignesEcritures)
       .innerJoin(ecritures, eq(lignesEcritures.ecritureId, ecritures.id))
       .where(and(...conditions));
+
+    // Résultat de la période (classes 6/7), intégré aux capitaux propres
+    // (120 bénéfice / 129 perte). Après une clôture, les lignes 6/7
+    // d'avant-clôture sont exclues par le filtre d'ouverture, donc le
+    // résultat reporté en 120/129 n'est pas double-compté.
+    const comptesParId = new Map(comptesData.map((compte) => [compte.id, compte]));
+    let totalCharges = 0;
+    let totalProduits = 0;
+    lignes.forEach((ligne) => {
+      const compte = comptesParId.get(ligne.compteId);
+      if (!compte) return;
+      const debitLigne = parseFloat(ligne.debit || 0);
+      const creditLigne = parseFloat(ligne.credit || 0);
+      if (compte.numero.startsWith('6')) totalCharges += debitLigne - creditLigne;
+      else if (compte.numero.startsWith('7')) totalProduits += creditLigne - debitLigne;
+    });
+    const resultatNet = totalProduits - totalCharges;
 
     // Calculer les soldes par compte (débit - crédit)
     const soldesMap = {};
@@ -2240,16 +2274,36 @@ router.get('/bilan', async (req, res) => {
       } else if (['4'].includes(classe) && solde < 0) {
         bilan.passif.dettes.push(item);
         bilan.passif.total += Math.abs(solde);
-      } else if (['5'].includes(classe)) {
+      } else if (['5'].includes(classe) && solde > 0) {
+        // Solde débiteur = trésorerie à l'actif.
         bilan.actif.tresorerie.push(item);
-        bilan.actif.total += Math.abs(solde);
-      } else if (['1'].includes(classe)) {
-        bilan.passif.capitauxPropres.push(item);
+        bilan.actif.total += solde;
+      } else if (['5'].includes(classe) && solde < 0) {
+        // Solde créditeur (banque à découvert) = dette au passif, pas
+        // un actif positif — même correctif que ComptaOrion (ancien
+        // /bilan : découvert repris en positif à l'actif, bilan faux).
+        bilan.passif.dettes.push(item);
         bilan.passif.total += Math.abs(solde);
+      } else if (['1'].includes(classe)) {
+        // Contribution signée (-solde) : un 129 débiteur (perte
+        // reportée) diminue les capitaux propres au lieu de les
+        // augmenter comme le faisait Math.abs(solde).
+        bilan.passif.capitauxPropres.push(item);
+        bilan.passif.total += -solde;
       }
     });
 
-    res.json(bilan);
+    if (Math.abs(resultatNet) > 0.01) {
+      const isPerte = resultatNet < 0;
+      bilan.passif.capitauxPropres.push({
+        compte: isPerte ? '129' : '120',
+        nom: isPerte ? "Résultat de l'exercice (Perte)" : "Résultat de l'exercice (Bénéfice)",
+        montant: Math.abs(resultatNet)
+      });
+      bilan.passif.total += isPerte ? -Math.abs(resultatNet) : Math.abs(resultatNet);
+    }
+
+    res.json({ ...bilan, resultatNet });
   } catch (error) {
     console.error('Erreur bilan:', error);
     res.status(500).json({ error: error.message });
