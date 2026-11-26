@@ -561,7 +561,75 @@ export async function createEcritureDepense(params) {
     libelle: `Remboursement dépense ${employeNom} - ${description}`,
     numeroPiece: reference,
     lignes: ecrituresLignes,
-    valide: false
+    // Le remboursement solde la dette envers l'employé (421) : il est
+    // validé comme l'encaissement client, sinon la dette reste un actif
+    // au bilan alors que l'argent a quitté la caisse (exercice 2026 :
+    // D 421 / C 57 valide=false, 421 soldé de 15 000).
+    valide: true
+  });
+}
+
+// Charge d'une note de frais approuvée (workflow d'approbation, comme
+// createEcritureChargeNoteFrais côté ComptaOrion) : à l'approbation
+// finale, la charge entre au résultat (OD : D charge classe 6 /
+// C 421 Personnel - Rémunérations dues). Le remboursement, lui, solde
+// ensuite le 421 (createEcritureDepense). Sans cette écriture, la charge
+// n'atteignait jamais le résultat (exercice 2026 : dépense de 15 000
+// approuvée, aucune écriture, résultat surévalué de 15 000).
+export async function createEcritureChargeNoteFraisLite(params) {
+  const {
+    entrepriseId,
+    depenseId,
+    dateDepense,
+    description,
+    montant,
+    numeroCompteCharge,
+    executor = db
+  } = params;
+
+  const amount = Number(montant);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw Object.assign(new Error('Le montant de la dépense approuvée est invalide.'), { status: 400 });
+  }
+
+  // Ventile la charge par catégorie (613 loyer, 624 transport, …),
+  // repli sur 62 comme pour les dépenses Lite directes.
+  let compteCharge = numeroCompteCharge
+    ? await getCompteByNumero(entrepriseId, numeroCompteCharge, executor)
+    : null;
+  if (!compteCharge) compteCharge = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.AUTRES_CHARGES_EXTERNES, executor);
+  const compteAvance = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.PERSONNEL_AVANCES, executor);
+
+  if (!compteCharge || !String(compteCharge.numero).startsWith('6')) {
+    throw Object.assign(new Error('La catégorie doit être liée à un compte de charge actif de classe 6.'), { status: 400 });
+  }
+  if (!compteAvance?.actif) {
+    throw Object.assign(new Error('Le compte d’avances au personnel (421) est requis pour comptabiliser cette dépense.'), { status: 400 });
+  }
+
+  const reference = `DEP-${Number(depenseId)}`;
+  const [existing] = await executor.select().from(ecritures).where(and(
+    eq(ecritures.entrepriseId, entrepriseId),
+    eq(ecritures.numeroPiece, reference),
+  )).limit(1);
+  if (existing) {
+    throw Object.assign(new Error('Une écriture existe déjà pour cette dépense; vérifiez son historique avant de poursuivre.'), { status: 409 });
+  }
+
+  return createEcritureComptable({
+    entrepriseId,
+    journalCode: JOURNAL_CODES.OD,
+    journalNom: 'Journal des opérations diverses',
+    journalType: 'OD',
+    dateEcriture: dateDepense,
+    libelle: `Charge approuvée - ${description}`,
+    numeroPiece: reference,
+    lignes: [
+      { compteComptableId: compteCharge.id, debit: amount, credit: 0, libelle: description },
+      { compteComptableId: compteAvance.id, debit: 0, credit: amount, libelle: 'Dette envers l’employé pour dépense approuvée' }
+    ],
+    valide: true,
+    executor
   });
 }
 
@@ -724,5 +792,6 @@ export default {
   createEcriturePaiementFournisseur,
   createEcriturePaiementClient,
   createEcritureDepense,
+  createEcritureChargeNoteFraisLite,
   createEcriturePaiementImpot
 };

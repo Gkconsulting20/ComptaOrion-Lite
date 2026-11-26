@@ -2,7 +2,7 @@ import express from 'express';
 import { db } from '../db.js';
 import { depenses, categoriesDepenses, approvalsDepenses, remboursementsEmployes, auditLogs, employes, liteIdempotency, entreprises } from '../schema.js';
 import { eq, and, gte, lte, desc, asc } from 'drizzle-orm';
-import { createEcritureDepense, createEcritureDepenseLite } from '../services/comptabiliteService.js';
+import { createEcritureDepense, createEcritureDepenseLite, createEcritureChargeNoteFraisLite, resolveCompteChargeLite } from '../services/comptabiliteService.js';
 import { claimIdempotentOperation } from '../middleware/idempotency.js';
 
 const router = express.Router();
@@ -339,48 +339,78 @@ router.post('/approve/:depenseId/:etape', async (req, res) => {
       return res.status(404).json({ error: 'Dépense non trouvée' });
     }
 
-    // Mettre à jour approbation
-    const approval = await db.update(approvalsDepenses).set({
-      statut: statut, // approuvée, rejetée
-      dateApprobation: new Date(),
-      approbateurId: userId,
-      raison
-    }).where(
-      and(
-        eq(approvalsDepenses.depenseId, depenseId_int),
-        eq(approvalsDepenses.etape, etape)
-      )
-    ).returning();
+    // Approbation et création de l'écriture de charge en une seule
+    // transaction : si la charge ne peut pas être comptabilisée (compte
+    // 421 ou compte de charge manquant), l'approbation est annulée et
+    // peut être rejouée — la dépense ne reste jamais « approuvée » sans
+    // écriture (exercice 2026 : approbation sans écriture, charge de
+    // 15 000 absente du résultat).
+    const approval = await db.transaction(async (tx) => {
+      // Mettre à jour approbation
+      const [row] = await tx.update(approvalsDepenses).set({
+        statut: statut, // approuvée, rejetée
+        dateApprobation: new Date(),
+        approbateurId: userId,
+        raison
+      }).where(
+        and(
+          eq(approvalsDepenses.depenseId, depenseId_int),
+          eq(approvalsDepenses.etape, etape)
+        )
+      ).returning();
 
-    // Si rejetée, changer statut dépense
-    if (statut === 'rejetée') {
-      await db.update(depenses).set({
-        statut: 'rejetée'
-      }).where(eq(depenses.id, depenseId_int));
-      
+      // Si rejetée, changer statut dépense
+      if (statut === 'rejetée') {
+        await tx.update(depenses).set({
+          statut: 'rejetée'
+        }).where(eq(depenses.id, depenseId_int));
+
+        return { row, rejetee: true };
+      }
+
+      // Déterminer prochaine étape
+      let prochainEtape = null;
+      if (etape === 'manager') prochainEtape = 'comptable';
+
+      if (prochainEtape) {
+        await tx.insert(approvalsDepenses).values({
+          entrepriseId: depense.entrepriseId,
+          depenseId: depenseId_int,
+          etape: prochainEtape,
+          statut: 'en_attente'
+        });
+      } else {
+        // Toutes les approbations terminées : la charge entre au
+        // résultat (OD : D charge classe 6 / C 421), comme ComptaOrion
+        // le fait via createEcritureChargeNoteFrais. Le remboursement
+        // soldera ensuite le 421 (createEcritureDepense).
+        const [categorie] = await tx.select().from(categoriesDepenses).where(and(
+          eq(categoriesDepenses.id, depense.categorieId),
+          eq(categoriesDepenses.entrepriseId, depense.entrepriseId)
+        )).limit(1);
+        await createEcritureChargeNoteFraisLite({
+          entrepriseId: depense.entrepriseId,
+          depenseId: depenseId_int,
+          dateDepense: depense.dateDepense,
+          description: depense.description || 'Dépense',
+          montant: Number(depense.montant),
+          numeroCompteCharge: resolveCompteChargeLite(categorie?.nom || null, depense.description),
+          executor: tx
+        });
+        await tx.update(depenses).set({
+          statut: 'approuvée',
+          montantApprouve: depense.montant
+        }).where(eq(depenses.id, depenseId_int));
+      }
+
+      return { row, rejetee: false };
+    });
+
+    if (approval.rejetee) {
       return res.json({ message: 'Dépense rejetée' });
     }
 
-    // Déterminer prochaine étape
-    let prochainEtape = null;
-    if (etape === 'manager') prochainEtape = 'comptable';
-
-    if (prochainEtape) {
-      await db.insert(approvalsDepenses).values({
-        entrepriseId: depense.entrepriseId,
-        depenseId: depenseId_int,
-        etape: prochainEtape,
-        statut: 'en_attente'
-      });
-    } else {
-      // Toutes les approbations terminées
-      await db.update(depenses).set({
-        statut: 'approuvée',
-        montantApprouve: depense.montant
-      }).where(eq(depenses.id, depenseId_int));
-    }
-
-    res.json({ message: `Dépense approuvée pour l'étape: ${etape}`, approval: approval[0] });
+    res.json({ message: `Dépense approuvée pour l'étape: ${etape}`, approval: approval.row });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -393,6 +423,11 @@ router.post('/approve/:depenseId/:etape', async (req, res) => {
 router.post('/remboursement', async (req, res) => {
   try {
     const { entrepriseId, depenseId, montantRembourse, dateRemboursement, methodePaiement, userId } = req.body;
+    const entrepriseIdEffectif = req.entrepriseId || parseInt(entrepriseId);
+    const montantRembourseNumerique = Number(montantRembourse);
+    if (!Number.isFinite(montantRembourseNumerique) || montantRembourseNumerique <= 0) {
+      return res.status(400).json({ error: 'Le montant du remboursement doit être positif.' });
+    }
 
     const depense = await db.query.depenses.findFirst({
       where: eq(depenses.id, parseInt(depenseId))
@@ -415,30 +450,35 @@ router.post('/remboursement', async (req, res) => {
 
     // Créer remboursement
     const remboursement = await db.insert(remboursementsEmployes).values({
-      entrepriseId: parseInt(entrepriseId),
+      entrepriseId: entrepriseIdEffectif,
       depenseId: parseInt(depenseId),
-      montantRembourse: parseFloat(montantRembourse),
+      montantRembourse: montantRembourseNumerique,
       dateRemboursement: new Date(dateRemboursement),
       methodePaiement,
       statut: 'complété'
     }).returning();
 
-    // Mettre à jour montant remboursé dans dépense
-    const totalRembourse = (depense.montantRembourse || 0) + parseFloat(montantRembourse);
+    // Mettre à jour montant remboursé dans dépense.
+    // Postgres renvoie les décimales en CHAÎNES (« 0.00 ») : convertir
+    // en nombre AVANT l'addition, sinon « 0.00 » + 15000 = « 0.0015000 »
+    // (concaténation), montantRembourse 0,00 et statut
+    // « partiellement_remboursée » au lieu de « remboursée »
+    // (exercice 2026, dépense de 15 000).
+    const totalRembourse = Number(depense.montantRembourse || 0) + montantRembourseNumerique;
     await db.update(depenses).set({
       montantRembourse: totalRembourse,
-      statut: totalRembourse >= depense.montantApprouve ? 'remboursée' : 'partiellement_remboursée'
+      statut: totalRembourse >= Number(depense.montantApprouve || 0) ? 'remboursée' : 'partiellement_remboursée'
     }).where(eq(depenses.id, parseInt(depenseId)));
 
     // Créer écriture comptable automatique
     try {
       await createEcritureDepense({
-        entrepriseId: parseInt(entrepriseId),
+        entrepriseId: entrepriseIdEffectif,
         reference: `RMB-${remboursement[0].id}`,
         dateRemboursement: new Date(dateRemboursement),
         employeNom,
         description: depense.description || 'Dépense',
-        montant: parseFloat(montantRembourse),
+        montant: montantRembourseNumerique,
         modePaiement: methodePaiement === 'especes' ? 'especes' : 'virement',
         categorieCompte: '62'
       });
