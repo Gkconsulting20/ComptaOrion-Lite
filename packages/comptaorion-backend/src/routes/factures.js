@@ -1,9 +1,10 @@
 import express from 'express';
 import { db } from '../db.js';
-import { factures, factureItems, paiements, clients, produits, transactionsTresorerie, comptesBancaires, ecritures, lignesEcritures, journaux, comptesComptables, mouvementsStock, entreprises, liteIdempotency } from '../schema.js';
+import { factures, factureItems, paiements, clients, produits, ecritures, lignesEcritures, journaux, comptesComptables, mouvementsStock, entreprises, liteIdempotency } from '../schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import emailService from '../services/emailService.js';
 import { createEcritureComptable, createEcritureFactureVente, createEcriturePaiementClient, getCompteByNumero } from '../services/comptabiliteService.js';
+import { enregistrerEncaissementTresorerie } from '../services/tresorerieService.js';
 import { calculateEarlyPaymentDiscount } from '../services/liteAccountingRules.js';
 import { claimIdempotentOperation } from '../middleware/idempotency.js';
 import { tauxTvaEntreprise, calculerTva } from '../utils/tva.js';
@@ -281,6 +282,25 @@ router.post('/lite-sale', async (req, res) => {
           montant: requestedPayment,
           modePaiement: payment.modePaiement === 'especes' ? 'especes' : 'banque',
           compteBancaireId: paiement?.compteBancaireId ? Number(paiement.compteBancaireId) : null,
+          executor: tx,
+        });
+        // L'encaissement alimente la trésorerie : espèces → compte
+        // « Caisse » (créé si besoin), compte désigné sinon. Avant,
+        // la vente comptant n'écrivait jamais dans
+        // transactions_tresorerie (module Trésorerie vide malgré les
+        // encaissements — exercice 2026).
+        await enregistrerEncaissementTresorerie({
+          entrepriseId: req.entrepriseId,
+          montant: requestedPayment,
+          dateTransaction: payment.datePaiement,
+          reference: payment.reference || `PAI-${payment.id}`,
+          numeroPiece: numeroFacture,
+          modePaiement: payment.modePaiement,
+          compteBancaireId: paiement?.compteBancaireId ? Number(paiement.compteBancaireId) : null,
+          description: `Paiement facture ${numeroFacture}`,
+          categorie: 'Vente',
+          tiersNom: client.nom || null,
+          userId: req.user.id,
           executor: tx,
         });
       }
@@ -588,36 +608,26 @@ router.post('/:id/paiement', async (req, res) => {
         updatedAt: new Date(),
       }).where(and(eq(factures.id, factureId), eq(factures.entrepriseId, req.entrepriseId)));
 
-      // A reçu de chèque crédite le compte client immédiatement, mais n'augmente
+      // Tout encaissement alimente la trésorerie : espèces → compte
+      // « Caisse » (créé si besoin), compte désigné sinon. Avant, rien
+      // n'était écrit sans compteBancaireId (exercice 2026 : 4
+      // encaissements en espèces, 0 ligne en trésorerie). Un reçu de
+      // chèque crédite le compte client immédiatement, mais n'augmente
       // le solde bancaire qu'au moment où le dépôt est enregistré.
-      if (modePaiement !== 'cheque' && compteBancaireId) {
-        const bankId = Number(compteBancaireId);
-        const [compte] = await tx.select().from(comptesBancaires)
-          .where(and(
-            eq(comptesBancaires.id, bankId),
-            eq(comptesBancaires.entrepriseId, req.entrepriseId),
-          )).limit(1);
-        if (!compte) throw Object.assign(new Error('Compte bancaire introuvable'), { status: 400 });
-        await tx.insert(transactionsTresorerie).values({
-          entrepriseId: req.entrepriseId,
-          compteBancaireId: bankId,
-          type: 'encaissement',
-          montant: montantPaiement.toFixed(2),
-          dateTransaction: jour,
-          categorie: 'Vente',
-          description: `Paiement facture ${factureData.numeroFacture}`,
-          numeroPiece: factureData.numeroFacture,
-          modePaiement,
-          userId: req.user.id,
-        });
-        await tx.update(comptesBancaires).set({
-          soldeActuel: sql`${comptesBancaires.soldeActuel} + ${montantPaiement.toFixed(2)}`,
-          updatedAt: new Date(),
-        }).where(and(
-          eq(comptesBancaires.id, bankId),
-          eq(comptesBancaires.entrepriseId, req.entrepriseId),
-        ));
-      }
+      await enregistrerEncaissementTresorerie({
+        entrepriseId: req.entrepriseId,
+        montant: montantPaiement,
+        dateTransaction: jour,
+        reference: reference || `PAI-${newPaiement.id}`,
+        numeroPiece: factureData.numeroFacture,
+        modePaiement,
+        compteBancaireId: compteBancaireId ? Number(compteBancaireId) : null,
+        description: `Paiement facture ${factureData.numeroFacture}`,
+        categorie: 'Vente',
+        tiersNom: clientInfo?.nom || null,
+        userId: req.user.id,
+        executor: tx,
+      });
 
       const entry = await createEcriturePaiementClient({
         entrepriseId: req.entrepriseId,
