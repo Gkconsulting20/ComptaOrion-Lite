@@ -209,7 +209,7 @@ router.post('/plans/proposals', async (_req, res) => {
       actif: false,
     },
     {
-      nom: 'Commerce — brouillon',
+      nom: 'Services — brouillon',
       prix: '5000',
       devise: 'XOF',
       periode: 'mensuel',
@@ -251,7 +251,7 @@ router.post('/plans/proposals', async (_req, res) => {
       descriptionFeatures: [
         'FONCTIONNALITÉS INCLUSES',
         '• Pour les prestataires de services, en équipe. Pas de négoce — ni stock, ni achats de marchandises',
-        '• Toutes les fonctions du forfait Commerce',
+        '• Toutes les fonctions du forfait Services',
         '• Gestion d’équipe étendue (jusqu’à 10 utilisateurs) et assistance prioritaire',
         '• Gestion partagée des ventes de prestations, clients et dépenses',
         '• TVA au taux choisi par l’entreprise (0 %, 18 % ou personnalisé)',
