@@ -37,10 +37,10 @@ const PLAN_SYSCOHADA = [
   { numero: '280', nom: 'Amortissements des immobilisations', categorie: 'Actif', classe: '2' },
   { numero: '290', nom: 'Provisions pour dépréciation', categorie: 'Actif', classe: '2' },
   
-  // Classe 3 - Comptes de stocks
-  { numero: '310', nom: 'Marchandises', categorie: 'Actif', classe: '3' },
-  { numero: '311', nom: 'Marchandises A', categorie: 'Actif', classe: '3' },
-  { numero: '312', nom: 'Marchandises B', categorie: 'Actif', classe: '3' },
+  // Classe 3 - Comptes de stocks (comptes 310/311/312 « Marchandises »
+  // retirés : Lite est réservé aux services, sans stock ni achats de
+  // marchandises. Les entreprises déjà créées conservent leurs comptes ;
+  // plus aucun flux Lite ne les utilise.)
   { numero: '320', nom: 'Matières premières et fournitures liées', categorie: 'Actif', classe: '3' },
   { numero: '330', nom: 'Autres approvisionnements', categorie: 'Actif', classe: '3' },
   { numero: '340', nom: 'Produits en cours', categorie: 'Actif', classe: '3' },
