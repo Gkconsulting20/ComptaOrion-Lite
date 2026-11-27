@@ -1,6 +1,6 @@
 import express from 'express';
 import { db } from '../db.js';
-import { depenses, categoriesDepenses, approvalsDepenses, remboursementsEmployes, auditLogs, employes, liteIdempotency, entreprises } from '../schema.js';
+import { depenses, categoriesDepenses, approvalsDepenses, remboursementsEmployes, auditLogs, employes, liteIdempotency, entreprises, users } from '../schema.js';
 import { eq, and, gte, lte, desc, asc } from 'drizzle-orm';
 import { createEcritureDepense, createEcritureDepenseLite, createEcritureChargeNoteFraisLite, resolveCompteChargeLite } from '../services/comptabiliteService.js';
 import { enregistrerDecaissementTresorerie } from '../services/tresorerieService.js';
@@ -63,6 +63,35 @@ function isUniqueViolation(error) {
   return error?.cause?.code === '23505' || error?.code === '23505';
 }
 
+// Liaison annuaire ↔ compte utilisateur (question ouverte depuis le
+// 22 nov. 2026) : depense.employeId est l'id du COMPTE utilisateur, pas
+// l'id de l'annuaire. La recherche du nom dans le remboursement essaie
+// donc d'abord employes.userId = depense.employeId, puis — repli pour
+// les dépenses déjà enregistrées — employes.id = depense.employeId.
+// Côté annuaire, le lien se pose explicitement : POST /employes et
+// PUT /employes/:id acceptent un userId optionnel (id d'un compte de la
+// même entreprise, vérifié ; null = retirer le lien). Aucune liaison
+// automatique n'est imposée : c'est la règle à trancher par Cap (lier à
+// la création ? lier plus tard ? proposer le lien dans le formulaire ?).
+// Il n'y a pas de contrainte d'unicité sur employes.user_id : deux lignes
+// d'annuaire pourraient pointer vers le même compte — à trancher aussi.
+async function resolveLinkedUserId({ entrepriseId, userId, executor = db }) {
+  if (userId === undefined) return undefined;
+  if (userId === null) return null;
+  const linkedId = Number(userId);
+  if (!Number.isSafeInteger(linkedId) || linkedId <= 0) {
+    throw Object.assign(new Error('Identifiant de compte utilisateur invalide.'), { status: 400 });
+  }
+  const [user] = await executor.select({ id: users.id }).from(users).where(and(
+    eq(users.id, linkedId),
+    eq(users.entrepriseId, entrepriseId),
+  )).limit(1);
+  if (!user) {
+    throw Object.assign(new Error('Compte utilisateur introuvable dans cette entreprise.'), { status: 400 });
+  }
+  return linkedId;
+}
+
 router.get('/employes/list', async (req, res) => {
   try {
     const employesList = await db.query.employes.findMany({
@@ -83,8 +112,14 @@ router.post('/employes', async (req, res) => {
       return res.status(400).json({ error: 'Nom et prénom sont obligatoires.' });
     }
     const created = await db.transaction(async (tx) => {
+      const linkedUserId = await resolveLinkedUserId({
+        entrepriseId: req.entrepriseId,
+        userId: req.body.userId,
+        executor: tx,
+      });
       const [row] = await tx.insert(employes).values({
         entrepriseId: req.entrepriseId,
+        ...(linkedUserId !== undefined ? { userId: linkedUserId } : {}),
         ...employePayload(req.body),
         nom,
         prenom,
@@ -104,7 +139,7 @@ router.post('/employes', async (req, res) => {
     if (isUniqueViolation(error)) {
       return res.status(409).json({ error: 'Ce matricule est déjà utilisé par un autre employé.' });
     }
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 
@@ -117,6 +152,12 @@ router.put('/employes/:id', async (req, res) => {
     const updates = employePayload(req.body);
     if (updates.nom === null || updates.prenom === null) {
       return res.status(400).json({ error: 'Nom et prénom ne peuvent pas être vides.' });
+    }
+    if (req.body.userId !== undefined) {
+      updates.userId = await resolveLinkedUserId({
+        entrepriseId: req.entrepriseId,
+        userId: req.body.userId,
+      });
     }
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'Aucun champ à modifier.' });
@@ -459,11 +500,21 @@ router.post('/remboursement', async (req, res) => {
       return res.status(404).json({ error: 'Dépense non trouvée' });
     }
 
-    // Récupérer le nom de l'employé
+    // Récupérer le nom de l'employé. depense.employeId est l'id du COMPTE
+    // utilisateur : on cherche d'abord un employé lié par userId, puis —
+    // repli — un employé dont l'id d'annuaire égale cet id.
     let employeNom = 'Employé';
     if (depense.employeId) {
       const employe = await db.query.employes.findFirst({
-        where: eq(employes.id, depense.employeId)
+        where: and(
+          eq(employes.userId, depense.employeId),
+          eq(employes.entrepriseId, entrepriseIdEffectif),
+        ),
+      }) || await db.query.employes.findFirst({
+        where: and(
+          eq(employes.id, depense.employeId),
+          eq(employes.entrepriseId, entrepriseIdEffectif),
+        ),
       });
       if (employe) {
         employeNom = `${employe.prenom || ''} ${employe.nom || ''}`.trim();
