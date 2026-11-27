@@ -6,7 +6,7 @@ import { runWithDatabaseContext } from '../src/db.js';
 
 process.env.JWT_SECRET ||= 'unit-test-platform-owner-access-secret';
 process.env.JWT_REFRESH_SECRET ||= 'unit-test-platform-owner-refresh-secret';
-process.env.SAAS_PLATFORM_OWNER_EMAIL = 'admin@orionexa.com';
+process.env.SAAS_PLATFORM_OWNER_EMAIL = 'admin@orionexa.net';
 
 const [{ authMiddleware }, { default: saasPlatformAdminRoutes, requirePlatformOwner }, { default: authRoutes }] = await Promise.all([
   import('../src/auth.js'),
@@ -139,7 +139,7 @@ async function withServer(app, run) {
   }
 }
 
-function tokenFor(email = 'admin@orionexa.com') {
+function tokenFor(email = 'admin@orionexa.net') {
   return jwt.sign({ id: 9, email, role: 'admin', entrepriseId: 2 }, process.env.JWT_SECRET);
 }
 
@@ -161,8 +161,8 @@ test('un administrateur de commerçant ne devient pas administrateur de la plate
 
 test('le compte propriétaire doit être actif et avoir le rôle admin', async () => {
   for (const account of [
-    { email: 'admin@orionexa.com', role: 'manager', actif: true },
-    { email: 'admin@orionexa.com', role: 'admin', actif: false },
+    { email: 'admin@orionexa.net', role: 'manager', actif: true },
+    { email: 'admin@orionexa.net', role: 'admin', actif: false },
   ]) {
     await withServer(appWithAccount(account), async (base) => {
       const response = await fetch(`${base}/protected`, { headers: { Authorization: `Bearer ${tokenFor()}` } });
@@ -172,7 +172,7 @@ test('le compte propriétaire doit être actif et avoir le rôle admin', async (
 });
 
 test('seul le compte propriétaire actif franchit la protection plateforme', async () => {
-  await withServer(appWithAccount({ email: 'Admin@Orionexa.com', role: 'admin', actif: true }), async (base) => {
+  await withServer(appWithAccount({ email: 'Admin@Orionexa.net', role: 'admin', actif: true }), async (base) => {
     const response = await fetch(`${base}/protected`, { headers: { Authorization: `Bearer ${tokenFor()}` } });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { ok: true });
@@ -187,7 +187,7 @@ test('les routes réellement montées de gestion SaaS rejettent les visiteurs no
 });
 
 test('le rapport commercial refuse une période impossible', async () => {
-  await withServer(platformRoutesAppWithAccount({ email: 'admin@orionexa.com', role: 'admin', actif: true }), async (base) => {
+  await withServer(platformRoutesAppWithAccount({ email: 'admin@orionexa.net', role: 'admin', actif: true }), async (base) => {
     const response = await fetch(`${base}/api/saas-admin/reports?from=2026-02-31&to=2026-03-01`, {
       headers: { Authorization: `Bearer ${tokenFor()}` },
     });
@@ -197,7 +197,7 @@ test('le rapport commercial refuse une période impossible', async () => {
 });
 
 test('la création d’un commercial exige ses informations et un mot de passe', async () => {
-  await withServer(platformRoutesAppWithAccount({ email: 'admin@orionexa.com', role: 'admin', actif: true }), async (base) => {
+  await withServer(platformRoutesAppWithAccount({ email: 'admin@orionexa.net', role: 'admin', actif: true }), async (base) => {
     const response = await fetch(`${base}/api/saas-admin/commerciaux`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${tokenFor()}`, 'Content-Type': 'application/json' },
@@ -209,7 +209,7 @@ test('la création d’un commercial exige ses informations et un mot de passe',
 });
 
 test('l’administrateur peut désactiver un compte commercial via la route réellement montée', async () => {
-  const account = { email: 'admin@orionexa.com', role: 'admin', actif: true };
+  const account = { email: 'admin@orionexa.net', role: 'admin', actif: true };
   const commercial = { id: 14, nom: 'Diallo', prenom: 'Awa', email: 'awa@example.test', actif: true };
   await withServer(platformRoutesAppWithCommercialMutation(account, commercial), async (base) => {
     const response = await fetch(`${base}/api/saas-admin/commerciaux/14`, {

@@ -22,7 +22,7 @@ import {
 } from '../services/trialLifecycle.js';
 
 const router = express.Router();
-const OWNER_EMAIL = (process.env.SAAS_PLATFORM_OWNER_EMAIL || 'admin@orionexa.com').trim().toLowerCase();
+const OWNER_EMAIL = (process.env.SAAS_PLATFORM_OWNER_EMAIL || 'admin@orionexa.net').trim().toLowerCase();
 const clientStatuses = new Set(['trial', 'suspendu', 'inactif']);
 const planStatuses = new Set(['mensuel', 'annuel']);
 const COMMISSION_RATE = '10';
@@ -667,7 +667,7 @@ router.post('/purge-essais-expires', async (req, res) => {
     const result = await purgeExpiredTrials({
       dryRun,
       ids: ids?.map(Number),
-      supprimePar: req.platformOwner?.email || 'admin@orionexa.com',
+      supprimePar: req.platformOwner?.email || 'admin@orionexa.net',
     });
     res.json(result);
   } catch (error) {
@@ -704,7 +704,7 @@ router.get('/parametres-plateforme', async (_req, res) => {
 router.patch('/parametres-plateforme', async (req, res) => {
   try {
     const { cle, valeur } = req.body || {};
-    const row = await setPlatformParam(cle, valeur, req.platformOwner?.email || 'admin@orionexa.com');
+    const row = await setPlatformParam(cle, valeur, req.platformOwner?.email || 'admin@orionexa.net');
     res.json(row);
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message || 'Impossible de mettre à jour le paramètre.' });
