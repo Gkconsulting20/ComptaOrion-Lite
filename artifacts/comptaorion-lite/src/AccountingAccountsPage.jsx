@@ -19,26 +19,22 @@ function quoteDiscount(invoice, party) {
   return { rate, days, discount, net: Math.round((balance - discount + Number.EPSILON) * 100) / 100, cutoff: cutoff.toISOString().slice(0, 10) };
 }
 
+// Comptes tiers — clients uniquement (Lite services uniquement) : la
+// section fournisseurs, les retours de marchandises et les règlements
+// fournisseurs sont retirés avec les achats. Restent : le relevé client
+// (les avoirs historiques de retours restent lisibles), la note de débit
+// client (avoir sur prestation, sans stock), les conditions d'escompte,
+// l'encaissement client et les chèques à déposer.
 export default function AccountingAccountsPage({ clients = [], invoices = [], settings = {}, t = (fr) => fr, onChanged }) {
   const currency = settings.currency || 'FCFA';
   const [section, setSection] = useState('clients');
-  const [suppliers, setSuppliers] = useState([]);
-  const [purchases, setPurchases] = useState([]);
   const [banks, setBanks] = useState([]);
   const [checks, setChecks] = useState([]);
   const [selectedThirdParty, setSelectedThirdParty] = useState('');
   const [ledger, setLedger] = useState(null);
-  const [selectedInvoice, setSelectedInvoice] = useState('');
-  const [returnItems, setReturnItems] = useState([]);
-  const [restock, setRestock] = useState({});
-  const [dateRetour, setDateRetour] = useState(today());
   const [returnMessage, setReturnMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [depositBank, setDepositBank] = useState({});
-  const [paymentInvoice, setPaymentInvoice] = useState('');
-  const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentMode, setPaymentMode] = useState('virement');
-  const [paymentMessage, setPaymentMessage] = useState('');
   const [clientPaymentInvoice, setClientPaymentInvoice] = useState('');
   const [clientPaymentAmount, setClientPaymentAmount] = useState('');
   const [clientPaymentMode, setClientPaymentMode] = useState('mobile_money');
@@ -61,14 +57,10 @@ export default function AccountingAccountsPage({ clients = [], invoices = [], se
 
   const loadSupport = async () => {
     try {
-      const [suppliersResult, purchasesResult, banksResult, checksResult] = await Promise.all([
-        api.get('/fournisseurs'),
-        api.get('/achats'),
+      const [banksResult, checksResult] = await Promise.all([
         api.get('/comptes-bancaires-lite'),
         api.get('/cheques-clients'),
       ]);
-      setSuppliers(suppliersResult.data || []);
-      setPurchases(purchasesResult.data || []);
       setBanks(banksResult.data || []);
       setChecks(checksResult.data || []);
     } catch (error) {
@@ -78,67 +70,37 @@ export default function AccountingAccountsPage({ clients = [], invoices = [], se
 
   useEffect(() => { loadSupport(); }, []);
 
-  const returnInvoices = section === 'clients' ? invoices : purchases;
-  const selectedSourceInvoice = returnInvoices.find((item) => String(item.id) === String(selectedInvoice));
-  const selectedPaymentInvoice = purchases.find((item) => String(item.id) === String(paymentInvoice));
   const selectedClientPaymentInvoice = invoices.find((item) => String(item.id) === String(clientPaymentInvoice));
-
-  useEffect(() => {
-    let active = true;
-    setReturnItems([]);
-    setRestock({});
-    if (!selectedSourceInvoice) return undefined;
-    if (section === 'suppliers') {
-      const items = selectedSourceInvoice.items || [];
-      setReturnItems(items);
-      return () => { active = false; };
-    }
-    api.get(`/factures/${selectedSourceInvoice.id}`).then((result) => {
-      if (!active) return;
-      setReturnItems(result.data?.items || []);
-    }).catch((error) => {
-      if (active) setReturnMessage(error.message || t('Impossible de charger les articles de la facture.', 'Invoice items could not be loaded.'));
-    });
-    return () => { active = false; };
-  }, [selectedSourceInvoice?.id, section]);
 
   useEffect(() => {
     let active = true;
     setLedger(null);
     if (!selectedThirdParty) return undefined;
-    const endpoint = section === 'clients'
-      ? `/clients/${selectedThirdParty}/compte`
-      : `/fournisseurs/${selectedThirdParty}/compte`;
-    api.get(endpoint).then((result) => { if (active) setLedger(result.data); })
+    api.get(`/clients/${selectedThirdParty}/compte`).then((result) => { if (active) setLedger(result.data); })
       .catch((error) => { if (active) setReturnMessage(error.message || t('Relevé indisponible.', 'Statement unavailable.')); });
     return () => { active = false; };
   }, [selectedThirdParty, section, ledgerRefresh]);
 
-  const thirdParties = section === 'clients' ? clients : suppliers;
+  const thirdParties = clients;
   const selectedThirdPartyRecord = thirdParties.find((item) => String(item.id) === String(selectedThirdParty));
   const thirdPartyId = (item) => item.id;
-  const thirdPartyName = (item) => section === 'clients' ? item.nom : item.raisonSociale;
+  const thirdPartyName = (item) => item.nom;
   const invoiceLabel = (item) => `${item.numeroFacture || `#${item.id}`} · ${money(item.soldeRestant, currency)}`;
-  const adjustmentInvoices = section === 'clients' ? invoices : purchases;
+  const adjustmentInvoices = invoices;
   const selectedAdjustmentInvoice = adjustmentInvoices.find((item) => String(item.id) === String(adjustmentInvoice));
-  const selectedSupplierParty = selectedPaymentInvoice?.fournisseur
-    || suppliers.find((item) => String(item.id) === String(selectedPaymentInvoice?.fournisseurId));
   const selectedClientParty = clients.find((item) => String(item.id) === String(selectedClientPaymentInvoice?.clientId))
     || selectedClientPaymentInvoice?.client;
-  const supplierDiscountQuote = quoteDiscount(selectedPaymentInvoice, selectedSupplierParty);
   const clientDiscountQuote = quoteDiscount(selectedClientPaymentInvoice, selectedClientParty);
 
   useEffect(() => {
     let active = true;
     setAdjustmentAccounts([]);
     if (section === 'checks') return undefined;
-    const type = section === 'clients' ? 'client' : 'fournisseur';
-    api.get(`/comptes-comptables-ajustement?type=${type}`).then((result) => {
+    api.get('/comptes-comptables-ajustement?type=client').then((result) => {
       if (!active) return;
       const accounts = result.data || [];
       setAdjustmentAccounts(accounts);
-      const defaultNumber = type === 'client' ? '708' : '609';
-      setAdjustmentAccountId(String(accounts.find((account) => account.numero === defaultNumber)?.id || accounts[0]?.id || ''));
+      setAdjustmentAccountId(String(accounts.find((account) => account.numero === '708')?.id || accounts[0]?.id || ''));
     }).catch((error) => {
       if (active) setAdjustmentMessage(error.message || 'Comptes d’ajustement indisponibles.');
     });
@@ -158,8 +120,7 @@ export default function AccountingAccountsPage({ clients = [], invoices = [], se
     setDiscountTermsMessage('');
     setBusy(true);
     try {
-      const route = section === 'clients' ? 'clients' : 'fournisseurs';
-      await api.put(`/${route}/${selectedThirdPartyRecord.id}/conditions-escompte`, {
+      await api.put(`/clients/${selectedThirdPartyRecord.id}/conditions-escompte`, {
         escomptePourcentage: Number(discountRate),
         escompteDelaiJours: Number(discountDays),
         delaiPaiement: Number(netDays),
@@ -181,10 +142,7 @@ export default function AccountingAccountsPage({ clients = [], invoices = [], se
     setAdjustmentMessage('');
     setBusy(true);
     try {
-      const endpoint = section === 'clients'
-        ? `/factures/${adjustmentInvoice}/notes-debit`
-        : `/achats/${adjustmentInvoice}/notes-credit`;
-      const result = await api.post(endpoint, {
+      const result = await api.post(`/factures/${adjustmentInvoice}/notes-debit`, {
         dateNote: adjustmentDate,
         totalHT: Number(adjustmentHT),
         totalTVA: Number(adjustmentVAT || 0),
@@ -201,62 +159,6 @@ export default function AccountingAccountsPage({ clients = [], invoices = [], se
       onChanged?.();
     } catch (error) {
       setAdjustmentMessage(error.message || t('La note d’ajustement n’a pas été créée.', 'The adjustment note was not created.'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const createReturn = async (event) => {
-    event.preventDefault();
-    setReturnMessage('');
-    const selected = returnItems
-      .map((item) => ({
-        itemId: Number(item.id),
-        quantite: Number(item.returnQuantity || 0),
-        ...(section === 'clients' ? { reintegrerStock: restock[item.id] === true } : {}),
-      }))
-      .filter((item) => item.quantite > 0);
-    if (!selectedInvoice || !selected.length) {
-      setReturnMessage(t('Choisissez une facture et une quantité à retourner.', 'Choose an invoice and a quantity to return.'));
-      return;
-    }
-    setBusy(true);
-    try {
-      const path = section === 'clients' ? `/factures/${selectedInvoice}/retours` : `/achats/${selectedInvoice}/retours`;
-      const result = await api.post(path, { dateRetour, items: selected });
-      setReturnMessage(`${result.data?.numero || ''} · ${t('Note créée et comptes mis à jour.', 'Note created and accounts updated.')}`);
-      setSelectedInvoice('');
-      setSelectedThirdParty(section === 'clients' ? selectedThirdParty : selectedThirdParty);
-      await loadSupport();
-      onChanged?.();
-    } catch (error) {
-      setReturnMessage(error.message || t('Le retour n’a pas été enregistré.', 'The return was not recorded.'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const postSupplierPayment = async (event) => {
-    event.preventDefault();
-    setPaymentMessage('');
-    if (!selectedPaymentInvoice || Number(paymentAmount) <= 0) return;
-    setBusy(true);
-    try {
-      const result = await api.post(`/achats/${paymentInvoice}/paiement`, {
-        montant: Number(paymentAmount),
-        modePaiement: paymentMode,
-        datePaiement: today(),
-      });
-      setPaymentMessage(Number(result.data?.escompteMontant) > 0
-        ? `${t('Règlement fournisseur enregistré. Escompte obtenu :', 'Supplier payment recorded. Discount received:')} ${money(result.data.escompteMontant, currency)}.`
-        : t('Règlement fournisseur enregistré et comptabilisé.', 'Supplier payment recorded and posted.'));
-      setPaymentAmount('');
-      setPaymentInvoice('');
-      await loadSupport();
-      setLedgerRefresh((value) => value + 1);
-      onChanged?.();
-    } catch (error) {
-      setPaymentMessage(error.message || t('Le règlement n’a pas été enregistré.', 'The payment was not recorded.'));
     } finally {
       setBusy(false);
     }
@@ -316,19 +218,19 @@ export default function AccountingAccountsPage({ clients = [], invoices = [], se
 
   return <div className="lite-page">
     <div className="lite-page-head">
-      <div><span className="eyebrow">{t('Suivi des tiers', 'Third-party accounts')}</span><h1>{t('Comptes clients et fournisseurs', 'Customer and supplier accounts')}</h1>
-        <p className="muted">{t('Suivez paiements, retours, notes d’ajustement, escomptes et chèques reçus.', 'Track payments, returns, adjustment notes, discounts, and received checks.')}</p>
+      <div><span className="eyebrow">{t('Suivi des tiers', 'Third-party accounts')}</span><h1>{t('Comptes clients', 'Customer accounts')}</h1>
+        <p className="muted">{t('Suivez paiements, notes d’ajustement, escomptes et chèques reçus.', 'Track payments, adjustment notes, discounts, and received checks.')}</p>
       </div>
     </div>
     <div className="purchase-tabs" role="tablist">
-      {['clients', 'suppliers', 'checks'].map((key) => <button key={key} role="tab" aria-selected={section === key} className={section === key ? 'selected' : ''} onClick={() => { setSection(key); setSelectedThirdParty(''); setSelectedInvoice(''); }}>
-        {key === 'clients' ? t('Clients', 'Customers') : key === 'suppliers' ? t('Fournisseurs', 'Suppliers') : t('Chèques à déposer', 'Checks to deposit')}
+      {['clients', 'checks'].map((key) => <button key={key} role="tab" aria-selected={section === key} className={section === key ? 'selected' : ''} onClick={() => { setSection(key); setSelectedThirdParty(''); }}>
+        {key === 'clients' ? t('Clients', 'Customers') : t('Chèques à déposer', 'Checks to deposit')}
       </button>)}
     </div>
 
     {section !== 'checks' ? <>
       <section className="list-card" style={{ marginTop: 16 }}>
-        <label>{section === 'clients' ? t('Compte client', 'Customer account') : t('Compte fournisseur', 'Supplier account')}
+        <label>{t('Compte client', 'Customer account')}
           <select value={selectedThirdParty} onChange={(event) => setSelectedThirdParty(event.target.value)}>
             <option value="">{t('Choisir un compte', 'Choose an account')}</option>
             {thirdParties.map((item) => <option key={thirdPartyId(item)} value={thirdPartyId(item)}>{thirdPartyName(item)}</option>)}
@@ -347,17 +249,17 @@ export default function AccountingAccountsPage({ clients = [], invoices = [], se
         </form>}
         {ledger && <><div className="metric-grid" style={{ marginTop: 16 }}>
           <div className="metric-card ink"><span>{t('Factures', 'Invoices')}</span><strong>{money(ledger.totaux.factures, currency)}</strong></div>
-          <div className="metric-card mint"><span>{section === 'clients' ? t('Paiements reçus', 'Payments received') : t('Paiements effectués', 'Payments made')}</span><strong>{money(ledger.totaux.paiements, currency)}</strong></div>
-          <div className="metric-card sand"><span>{section === 'clients' ? t('Avoirs sur retours', 'Return credits') : t('Retours fournisseurs', 'Supplier returns')}</span><strong>{money(ledger.totaux.retours, currency)}</strong></div>
-          <div className="metric-card sand"><span>{section === 'clients' ? t('Notes de débit', 'Debit notes') : t('Notes de crédit', 'Credit notes')}</span><strong>{money(section === 'clients' ? ledger.totaux.notesDebit : ledger.totaux.notesCredit, currency)}</strong></div>
+          <div className="metric-card mint"><span>{t('Paiements reçus', 'Payments received')}</span><strong>{money(ledger.totaux.paiements, currency)}</strong></div>
+          <div className="metric-card sand"><span>{t('Avoirs (historique)', 'Credits (history)')}</span><strong>{money(ledger.totaux.retours, currency)}</strong></div>
+          <div className="metric-card sand"><span>{t('Notes de débit', 'Debit notes')}</span><strong>{money(ledger.totaux.notesDebit, currency)}</strong></div>
           <div className="metric-card mint"><span>{t('Escomptes', 'Discounts')}</span><strong>{money(ledger.totaux.escomptes, currency)}</strong></div>
-          <div className="metric-card ink"><span>{section === 'clients' ? t('Solde à recevoir', 'Balance to collect') : t('Solde à payer', 'Balance payable')}</span><strong>{money(Math.abs(ledger.totaux.solde), currency)}{ledger.totaux.solde < 0 ? ` · ${t('solde créditeur', 'credit balance')}` : ''}</strong></div>
-        </div>{section === 'clients' && <p className="muted" style={{ marginTop: 12 }}>{t('Le paiement est distinct d’un avoir. L’avoir physique passe par le retour; la note de débit et l’escompte apparaissent séparément.', 'A payment is distinct from a credit note. Physical credits use the return flow; debit notes and discounts are shown separately.')}</p>}<div className="activity" style={{ marginTop: 16 }}>
+          <div className="metric-card ink"><span>{t('Solde à recevoir', 'Balance to collect')}</span><strong>{money(Math.abs(ledger.totaux.solde), currency)}{ledger.totaux.solde < 0 ? ` · ${t('solde créditeur', 'credit balance')}` : ''}</strong></div>
+        </div><p className="muted" style={{ marginTop: 12 }}>{t('Le paiement est distinct d’un avoir. Un avoir sur prestation se fait par note de débit ; l’escompte apparaît séparément.', 'A payment is distinct from a credit note. A credit on a service is made with a debit note; discounts are shown separately.')}</p><div className="activity" style={{ marginTop: 16 }}>
           <div className="section-title"><h2>{t('Mouvements du compte', 'Account movements')}</h2></div>
           {movementRows.length ? movementRows.map((row, index) => <div className="activity-row" key={`${row.reference}-${index}`}>
             <span>{String(row.date || '').slice(0, 10)}</span><div><strong>{row.libelle}</strong><small>{row.reference}</small></div>
             <span className={`status ${row.type}`}>{row.type === 'paiement' ? t('Paiement', 'Payment')
-              : row.type === 'retour' ? (section === 'clients' ? t('Avoir sur retour', 'Return credit') : t('Retour fournisseur', 'Supplier return'))
+              : row.type === 'retour' ? t('Avoir (historique)', 'Credit (history)')
                 : row.type === 'note_debit' ? t('Note de débit', 'Debit note')
                   : row.type === 'note_credit' ? t('Note de crédit', 'Credit note')
                     : row.type === 'escompte' ? t('Escompte', 'Discount')
@@ -368,18 +270,14 @@ export default function AccountingAccountsPage({ clients = [], invoices = [], se
       </section>
 
       {selectedThirdPartyRecord && <section className="list-card" style={{ marginTop: 16 }}>
-        <h2>{section === 'clients' ? t('Note de débit client — ajustement sans retour', 'Customer debit note — adjustment without return') : t('Note de crédit fournisseur — qualité sans retour', 'Supplier credit note — quality adjustment without return')}</h2>
-        <p className="muted">{section === 'clients'
-          ? t('Cette note augmente le montant dû par le client. Elle ne modifie pas le stock.', 'This note increases the customer balance and does not change stock.')
-          : t('Cette note réduit le montant dû au fournisseur. Pour un retour physique, utilisez le formulaire de retour séparé.', 'This note reduces the supplier balance. For a physical return, use the separate return form.')}</p>
+        <h2>{t('Note de débit client — ajustement sans retour', 'Customer debit note — adjustment without return')}</h2>
+        <p className="muted">{t('Cette note augmente le montant dû par le client. Elle ne modifie pas le stock.', 'This note increases the customer balance and does not change stock.')}</p>
         <form className="lite-form" onSubmit={createAdjustment}>
           <label>{t('Facture d’origine', 'Source invoice')}
             <select value={adjustmentInvoice} onChange={(event) => setAdjustmentInvoice(event.target.value)} required>
               <option value="">{t('Choisir une facture', 'Choose an invoice')}</option>
-              {adjustmentInvoices.filter((item) => {
-                const partyId = section === 'clients' ? item.clientId : item.fournisseur?.id || item.fournisseurId;
-                return Number(partyId) === Number(selectedThirdParty);
-              }).map((item) => <option key={item.id} value={item.id}>{invoiceLabel(item)}</option>)}
+              {adjustmentInvoices.filter((item) => Number(item.clientId) === Number(selectedThirdParty))
+                .map((item) => <option key={item.id} value={item.id}>{invoiceLabel(item)}</option>)}
             </select>
           </label>
           <label>{t('Date de la note', 'Note date')}<input type="date" value={adjustmentDate} onChange={(event) => setAdjustmentDate(event.target.value)} required /></label>
@@ -399,50 +297,6 @@ export default function AccountingAccountsPage({ clients = [], invoices = [], se
       </section>}
 
       <section className="list-card" style={{ marginTop: 16 }}>
-        <h2>{section === 'clients' ? t('Créer un avoir via un retour de marchandise', 'Create a credit note through a goods return') : t('Enregistrer un retour fournisseur', 'Record a supplier return')}</h2>
-        <form className="lite-form" onSubmit={createReturn}>
-          <label>{t('Facture d’origine', 'Source invoice')}
-            <select value={selectedInvoice} onChange={(event) => setSelectedInvoice(event.target.value)} required>
-              <option value="">{t('Choisir une facture', 'Choose an invoice')}</option>
-              {returnInvoices.filter((item) => !selectedThirdParty || Number(section === 'clients' ? item.clientId : item.fournisseur?.id) === Number(selectedThirdParty))
-                .map((item) => <option key={item.id} value={item.id}>{invoiceLabel(item)}</option>)}
-            </select>
-          </label>
-          <label>{t('Date du retour', 'Return date')}<input type="date" value={dateRetour} onChange={(event) => setDateRetour(event.target.value)} required /></label>
-          {returnItems.map((item) => <fieldset className="sale-item" key={item.id}>
-            <strong>{item.description}</strong>
-            <small>{t('Quantité d’origine', 'Original quantity')}: {item.quantite} · {money(item.prixUnitaire, currency)} / {t('unité', 'unit')}</small>
-            <label>{t('Quantité retournée', 'Returned quantity')}
-              <input type="number" min="0" max={item.quantite} step="0.001" value={item.returnQuantity || ''} onChange={(event) => setReturnItems((current) => current.map((row) => row.id === item.id ? { ...row, returnQuantity: event.target.value } : row))} />
-            </label>
-            {section === 'clients' && item.produitId && <label className="check-row">
-              <input type="checkbox" checked={restock[item.id] === true} onChange={(event) => setRestock((current) => ({ ...current, [item.id]: event.target.checked }))} />
-              {t('Article revendable : réintégrer au stock', 'Resalable item: return to stock')}
-            </label>}
-          </fieldset>)}
-          {returnMessage && <p role="status" className="muted">{returnMessage}</p>}
-          <button className="primary" type="submit" disabled={busy || !selectedInvoice}>{t('Créer la note et les écritures', 'Create note and journal entries')}</button>
-        </form>
-      </section>
-
-      {section === 'suppliers' && <section className="list-card" style={{ marginTop: 16 }}>
-        <h2>{t('Régler une facture fournisseur', 'Pay a supplier invoice')}</h2>
-        <form className="lite-form" onSubmit={postSupplierPayment}>
-          <label>{t('Facture à régler', 'Invoice to pay')}<select value={paymentInvoice} onChange={(event) => setPaymentInvoice(event.target.value)} required>
-            <option value="">{t('Choisir une facture', 'Choose an invoice')}</option>
-            {purchases.filter((item) => Number(item.soldeRestant) > 0).map((item) => <option key={item.id} value={item.id}>{item.fournisseur?.raisonSociale} · {invoiceLabel(item)}</option>)}
-          </select></label>
-          {selectedPaymentInvoice && <label>{t('Montant', 'Amount')}<input type="number" min="0.01" max={selectedPaymentInvoice.soldeRestant} step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} required /></label>}
-          {selectedPaymentInvoice && supplierDiscountQuote && <p className="muted">
-            {t(`Escompte ${supplierDiscountQuote.rate}% si le solde entier est payé avant le ${supplierDiscountQuote.cutoff} :`, `Discount ${supplierDiscountQuote.rate}% if the full balance is paid by ${supplierDiscountQuote.cutoff}:`)} {money(supplierDiscountQuote.discount, currency)} · {t('paiement net', 'net payment')} {money(supplierDiscountQuote.net, currency)}.
-            <button type="button" className="outline" style={{ marginLeft: 8 }} onClick={() => setPaymentAmount(supplierDiscountQuote.net.toFixed(2))}>{t('Utiliser ce montant', 'Use this amount')}</button>
-          </p>}
-          <label>{t('Mode de règlement', 'Payment method')}<select value={paymentMode} onChange={(event) => setPaymentMode(event.target.value)}><option value="virement">{t('Virement bancaire', 'Bank transfer')}</option><option value="especes">{t('Espèces', 'Cash')}</option><option value="mobile_money">{t('Mobile money', 'Mobile money')}</option></select></label>
-          {paymentMessage && <p role="status" className="muted">{paymentMessage}</p>}
-          <button className="primary" type="submit" disabled={busy}>{t('Enregistrer le règlement', 'Record payment')}</button>
-        </form>
-      </section>}
-      {section === 'clients' && <section className="list-card" style={{ marginTop: 16 }}>
         <h2>{t('Encaisser un paiement client', 'Record a customer payment')}</h2>
         <form className="lite-form" onSubmit={postClientPayment}>
           <label>{t('Facture à régler', 'Invoice to pay')}<select value={clientPaymentInvoice} onChange={(event) => setClientPaymentInvoice(event.target.value)} required>
@@ -465,7 +319,7 @@ export default function AccountingAccountsPage({ clients = [], invoices = [], se
           {clientPaymentMessage && <p role="status" className="muted">{clientPaymentMessage}</p>}
           <button className="primary" type="submit" disabled={busy}>{t('Enregistrer le paiement', 'Record payment')}</button>
         </form>
-      </section>}
+      </section>
     </> : <section className="list-card" style={{ marginTop: 16 }}>
       <h2>{t('Chèques reçus', 'Received checks')}</h2>
       {checks.length ? checks.map(({ paiement, client, facture }) => <div className="activity-row" key={paiement.id}>

@@ -4,7 +4,7 @@ import './guide.css';
 const sections = [
   ['demarrer', 'Bien démarrer'],
   ['ventes', 'Ventes et clients'],
-  ['achats-stock', 'Achats et stock'],
+  ['prestations', 'Prestations'],
   ['depenses', 'Dépenses'],
   ['photo', 'Saisie par photo'],
   ['rapports', 'Rapports financiers'],
@@ -29,7 +29,7 @@ export default function UserGuide() {
       <section className="guide-hero">
         <span className="guide-kicker">Guide client · version test</span>
         <h1>Votre activité, simplement.</h1>
-        <p>Ce guide vous accompagne pour enregistrer vos ventes, suivre vos achats et consulter vos chiffres dans ComptaOrion Lite.</p>
+        <p>Ce guide vous accompagne pour enregistrer vos ventes de prestations, suivre vos dépenses et consulter vos chiffres dans ComptaOrion Lite.</p>
         <div className="guide-callout">
           <strong>Essai gratuit de 30 jours</strong>
           <span>La période commence à la création de votre compte. Après son échéance, l’accès est suspendu, mais vos données restent conservées. Contactez la personne qui vous a transmis le lien pour demander la suite.</span>
@@ -52,7 +52,7 @@ export default function UserGuide() {
               <li>Après la création, connectez-vous avec la même adresse e-mail et le même mot de passe.</li>
               <li>Depuis <b>Réglages</b>, choisissez la langue et la devise affichée. Le choix de devise ne convertit pas les montants.</li>
             </ol>
-            <p className="guide-tip">Pour commencer, ajoutez d’abord vos produits et votre stock initial dans <b>Stock</b>.</p>
+            <p className="guide-tip">Pour commencer, ajoutez d’abord vos prestations et leurs tarifs dans <b>Prestations</b>.</p>
           </div>
         </section>
 
@@ -64,27 +64,25 @@ export default function UserGuide() {
             <ol>
               <li>Dans <b>Ventes</b>, cliquez sur <b>Nouvelle vente</b>.</li>
               <li>Choisissez un client ou créez-le sans quitter la vente.</li>
-              <li>Pour chaque ligne, sélectionnez un produit ou saisissez une description libre, puis indiquez la quantité et le prix unitaire. Utilisez <b>Ajouter un article</b> pour une vente de plusieurs produits.</li>
+              <li>Pour chaque ligne, sélectionnez une prestation ou saisissez une description libre, puis indiquez la quantité (heures, séances…) et le prix unitaire. Utilisez <b>Ajouter un article</b> pour une vente de plusieurs prestations.</li>
               <li>Indiquez le montant reçu maintenant. Le solde restant apparaîtra dans <b>Clients &amp; dettes</b>. Vérifiez les articles et les montants avant d’enregistrer.</li>
             </ol>
-            <p>Lorsqu’un produit du stock est associé à une vente, sa quantité disponible est mise à jour après l’enregistrement.</p>
+            <p>Lite est réservé aux services : il n’y a ni stock ni achats de marchandises. Une vente de prestation ne touche à aucune quantité en stock.</p>
             <h3>Suivre un client ou une dette</h3>
             <p>Dans <b>Clients &amp; dettes</b>, retrouvez les factures impayées, enregistrez un paiement partiel ou complet et, si un numéro est disponible, ouvrez une relance WhatsApp. L’analyse des paiements donne un score indicatif fondé sur l’historique : ce n’est pas une décision de crédit.</p>
           </div>
         </section>
 
-        <section className="guide-section" id="achats-stock">
+        <section className="guide-section" id="prestations">
           <span className="guide-number">03</span>
           <div>
-            <h2>Achats et stock</h2>
+            <h2>Prestations</h2>
             <ol>
-              <li>Dans <b>Achats</b>, ouvrez l’onglet <b>Fournisseurs</b> et ajoutez le fournisseur.</li>
-              <li>Ouvrez <b>Factures d’achat</b>, puis <b>Saisir un achat</b>.</li>
-              <li>Sélectionnez le fournisseur, ajoutez la référence et la date de facture si vous les avez, puis choisissez les produits, quantités et prix unitaires.</li>
-              <li>Après l’enregistrement, la facture apparaît dans les achats et le stock des produits concernés augmente.</li>
+              <li>Dans <b>Prestations</b>, cliquez sur <b>Nouvelle prestation</b>.</li>
+              <li>Saisissez le nom de la prestation, sa référence si vous en utilisez une, et son tarif.</li>
+              <li>La prestation apparaît ensuite dans le choix des lignes de vente, avec son tarif déjà rempli.</li>
             </ol>
-            <p>Dans <b>Stock</b>, créez un produit avec son nom, son prix de vente, la quantité initiale et un seuil bas. Pour corriger une quantité, utilisez <b>Ajuster</b> : une valeur positive ajoute du stock, une valeur négative en retire.</p>
-            <p className="guide-tip">Une facture d’achat met à jour le stock et la comptabilité : cette opération nécessite Internet.</p>
+            <p>Pour retirer une prestation du catalogue, utilisez <b>Supprimer</b> dans la liste. Les factures déjà émises ne sont pas modifiées.</p>
           </div>
         </section>
 
@@ -136,7 +134,7 @@ export default function UserGuide() {
               <li>Le nombre d’opérations en attente apparaît dans le bouton de synchronisation.</li>
               <li>Reconnectez-vous à Internet : la synchronisation démarre automatiquement. Vous pouvez aussi toucher le compteur pour réessayer.</li>
               <li>Gardez le même appareil et ne videz pas les données du navigateur tant que des opérations sont en attente.</li>
-              <li>Les achats, ajustements de stock et analyses photo nécessitent une connexion.</li>
+              <li>Les analyses photo nécessitent une connexion.</li>
             </ul>
           </div>
         </section>
