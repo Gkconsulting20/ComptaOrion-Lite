@@ -1,9 +1,9 @@
 import express from 'express';
 import { db } from '../db.js';
-import { factures, factureItems, paiements, clients, produits, ecritures, lignesEcritures, journaux, comptesComptables, mouvementsStock, entreprises, liteIdempotency } from '../schema.js';
+import { factures, factureItems, paiements, clients, produits, ecritures, lignesEcritures, journaux, comptesComptables, entreprises, liteIdempotency } from '../schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import emailService from '../services/emailService.js';
-import { createEcritureComptable, createEcritureFactureVente, createEcriturePaiementClient, getCompteByNumero } from '../services/comptabiliteService.js';
+import { createEcritureFactureVente, createEcriturePaiementClient } from '../services/comptabiliteService.js';
 import { enregistrerEncaissementTresorerie } from '../services/tresorerieService.js';
 import { calculateEarlyPaymentDiscount } from '../services/liteAccountingRules.js';
 import { claimIdempotentOperation } from '../middleware/idempotency.js';
@@ -140,7 +140,9 @@ router.get('/lite-day', async (req, res) => {
   }
 });
 
-// Vente rapide Lite: facture, paiement et sortie de stock dans une seule transaction.
+// Vente rapide Lite (services uniquement) : facture et paiement dans une
+// seule transaction. Aucun mouvement de stock : les lignes sont des
+// prestations, sans quantité en stock ni coût (CMUP retiré).
 router.post('/lite-sale', async (req, res) => {
   try {
     const { clientId, newClient, dateFacture, dateEcheance, notes, items, paiement } = req.body;
@@ -187,20 +189,15 @@ router.post('/lite-sale', async (req, res) => {
       }
       const effectiveClientId = client.id;
       const productIds = [...new Set(normalized.filter(i => i.produitId).map(i => i.produitId))].sort((a, b) => a - b);
-      const productRows = [];
       for (const id of productIds) {
         await tx.execute(sql`SELECT id FROM produits WHERE id = ${id} AND entreprise_id = ${req.entrepriseId} FOR UPDATE`);
         const [product] = await tx.select().from(produits).where(and(eq(produits.id, id), eq(produits.entrepriseId, req.entrepriseId))).limit(1);
         if (!product) throw Object.assign(new Error('Produit non trouvé ou non autorisé'), { status: 400 });
-        productRows.push(product);
       }
-      const requested = new Map();
-      for (const item of normalized) if (item.produitId) requested.set(item.produitId, (requested.get(item.produitId) || 0) + item.quantite);
-      for (const product of productRows) {
-        if (Number(product.quantite || 0) < requested.get(product.id)) {
-          throw Object.assign(new Error(`Stock insuffisant pour ${product.nom}`), { status: 400 });
-        }
-      }
+      // Services uniquement : aucune vérification de stock, aucun
+      // décrément, aucun coût des ventes (CMUP) — les lignes sont des
+      // prestations, leur quantité est une quantité facturée (heures,
+      // séances…), pas un prélèvement sur un stock.
       const [company] = await tx.select({ tauxTva: entreprises.tauxTva }).from(entreprises).where(eq(entreprises.id, req.entrepriseId)).limit(1);
       await tx.execute(sql`SELECT id FROM entreprises WHERE id = ${req.entrepriseId} FOR UPDATE`);
       const totalHT = normalized.reduce((sum, i) => sum + i.quantite * i.prixUnitaire * (1 - i.remise / 100), 0);
@@ -223,11 +220,6 @@ router.post('/lite-sale', async (req, res) => {
       }).returning();
       const itemRows = normalized.map(i => ({ entrepriseId: req.entrepriseId, factureId: invoice.id, produitId: i.produitId, description: i.description, quantite: i.quantite.toString(), prixUnitaire: i.prixUnitaire.toFixed(2), remise: i.remise.toFixed(2), totalLigne: (i.quantite * i.prixUnitaire * (1 - i.remise / 100)).toFixed(2) }));
       await tx.insert(factureItems).values(itemRows);
-      for (const [productId, quantity] of requested) {
-        const [updated] = await tx.update(produits).set({ quantite: sql`${produits.quantite} - ${quantity}`, updatedAt: new Date() }).where(and(eq(produits.id, productId), eq(produits.entrepriseId, req.entrepriseId), sql`${produits.quantite} >= ${quantity}`)).returning();
-        if (!updated) throw Object.assign(new Error('Le stock a changé, veuillez réessayer'), { status: 409 });
-        await tx.insert(mouvementsStock).values({ entrepriseId: req.entrepriseId, produitId: productId, type: 'sortie', quantite: quantity.toString(), prixUnitaire: String(productRows.find(p => p.id === productId)?.prixVente || 0), reference: numeroFacture, notes: 'Vente ComptaOrion Lite', userId: req.user.id });
-      }
       let payment = null;
       if (requestedPayment > 0) {
         [payment] = await tx.insert(paiements).values({ entrepriseId: req.entrepriseId, factureId: invoice.id, clientId: effectiveClientId, montant: requestedPayment.toFixed(2), modePaiement: paiement?.modePaiement || 'especes', reference: paiement?.reference || null, datePaiement: paiement?.datePaiement || new Date().toISOString().slice(0, 10), notes: paiement?.notes || null, userId: req.user.id }).returning();
@@ -244,34 +236,9 @@ router.post('/lite-sale', async (req, res) => {
         valide: true,
         executor: tx,
       });
-      const totalCost = Math.round((productRows.reduce((sum, product) => {
-        const unitCost = Number(product.coutMoyen || 0) || Number(product.prixAchat || 0);
-        return sum + (requested.get(product.id) || 0) * unitCost;
-      }, 0) + Number.EPSILON) * 100) / 100;
-      if (totalCost > 0) {
-        const stockAccount = await getCompteByNumero(req.entrepriseId, '31', tx);
-        const costAccount = await getCompteByNumero(req.entrepriseId, '601', tx);
-        if (!stockAccount || !costAccount) {
-          throw Object.assign(new Error('Les comptes de stock ou de coût des marchandises ne sont pas configurés'), { status: 409 });
-        }
-        await createEcritureComptable({
-          entrepriseId: req.entrepriseId,
-          journalCode: 'VT',
-          journalNom: 'Journal des Ventes',
-          journalType: 'ventes',
-          dateEcriture: dateFacture || new Date().toISOString().slice(0, 10),
-          libelle: `Sortie de stock - ${numeroFacture}`,
-          numeroPiece: numeroFacture,
-          lignes: [
-            { compteComptableId: costAccount.id, debit: totalCost, credit: 0, libelle: `Coût des marchandises vendues - ${numeroFacture}` },
-            { compteComptableId: stockAccount.id, debit: 0, credit: totalCost, libelle: `Stock vendu - ${numeroFacture}` },
-          ],
-          valide: true,
-          sourceType: 'facture_vente_stock',
-          sourceId: invoice.id,
-          executor: tx,
-        });
-      }
+      // Services uniquement : pas d'écriture de coût des ventes (CMUP,
+      // comptes 31/601 retirés) — la vente ne crédite que le compte de
+      // produits (701) via createEcritureFactureVente.
       if (payment) {
         await createEcriturePaiementClient({
           entrepriseId: req.entrepriseId,
@@ -779,54 +746,9 @@ router.put('/:id', async (req, res) => {
       ))
       .returning();
 
-    // *** INTÉGRATION STOCK AUTOMATIQUE ***
-    // Si le statut change vers 'envoyee' ou 'payee', générer mouvements SORTIE
-    if (statut && (statut === 'envoyee' || statut === 'payee') && existingFacture.statut === 'brouillon') {
-      // Récupérer les items de la facture
-      const factureItemsList = await db
-        .select()
-        .from(factureItems)
-        .where(eq(factureItems.factureId, parseInt(id)));
-
-      // Créer un mouvement SORTIE pour chaque produit
-      for (const item of factureItemsList) {
-        if (item.produitId) {
-          try {
-            // Créer mouvement de stock SORTIE
-            await db.insert(mouvementsStock).values({
-              entrepriseId: req.entrepriseId,
-              produitId: item.produitId,
-              type: 'sortie',
-              quantite: parseFloat(item.quantite),
-              prixUnitaire: parseFloat(item.prixUnitaire),
-              reference: `Facture ${updatedFacture.numeroFacture}`,
-              notes: `Vente client - Facture ${updatedFacture.numeroFacture}`,
-              userId: req.user?.id || null
-            });
-
-            // Mettre à jour le stock du produit (décrémenter)
-            const [produit] = await db
-              .select()
-              .from(produits)
-              .where(and(eq(produits.id, item.produitId), eq(produits.entrepriseId, req.entrepriseId)))
-              .limit(1);
-
-            if (produit) {
-              const nouvelleQuantite = Math.max(0, parseFloat(produit.quantite || 0) - parseFloat(item.quantite));
-              await db
-                .update(produits)
-                .set({ 
-                  quantite: nouvelleQuantite,
-                  updatedAt: new Date()
-                })
-                .where(and(eq(produits.id, item.produitId), eq(produits.entrepriseId, req.entrepriseId)));
-            }
-          } catch (error) {
-            console.error(`Erreur création mouvement SORTIE pour produit ${item.produitId}:`, error);
-          }
-        }
-      }
-    }
+    // Services uniquement : la mise à jour d'une facture ne touche plus
+    // au stock (retrait de l'« intégration stock automatique » :
+    // mouvements SORTIE + décrément des quantités à l'envoi / au paiement).
 
     res.json({
       success: true,
