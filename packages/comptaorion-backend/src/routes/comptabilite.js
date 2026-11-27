@@ -1334,7 +1334,7 @@ router.post('/comptes', async (req, res) => {
       entrepriseId: parseInt(entrepriseId),
       userId,
       action: 'CREATE',
-      table: 'comptes',
+      tableName: 'comptes',
       recordId: compte[0].id,
       description: `Compte créé: ${numero} - ${nom}`,
       ipAddress
@@ -1550,7 +1550,7 @@ router.post('/ecritures', async (req, res) => {
       entrepriseId,
       userId: req.userId,
       action: 'CREATE',
-      table: 'ecritures',
+      tableName: 'ecritures',
       recordId: ecriture.id,
       description: `Écriture créée: ${reference} - Journal: ${journal.code}`
     });
@@ -1686,7 +1686,7 @@ router.post('/ecritures/:id/valider', async (req, res) => {
       entrepriseId,
       userId: req.userId,
       action: 'UPDATE',
-      table: 'ecritures',
+      tableName: 'ecritures',
       recordId: parseInt(id),
       description: `Écriture validée: ${numeroEcriture}`
     });
