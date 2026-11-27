@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { depenses, categoriesDepenses, approvalsDepenses, remboursementsEmployes, auditLogs, employes, liteIdempotency, entreprises } from '../schema.js';
 import { eq, and, gte, lte, desc, asc } from 'drizzle-orm';
 import { createEcritureDepense, createEcritureDepenseLite, createEcritureChargeNoteFraisLite, resolveCompteChargeLite } from '../services/comptabiliteService.js';
+import { enregistrerDecaissementTresorerie } from '../services/tresorerieService.js';
 import { claimIdempotentOperation } from '../middleware/idempotency.js';
 
 const router = express.Router();
@@ -267,6 +268,27 @@ export async function createExpense(req, res) {
         categorieNom: categorie?.nom || null,
         executor: tx
       });
+      // Décaissement en trésorerie (miroir des encaissements) : la
+      // dépense directe sort de la caisse/banque, le module Trésorerie
+      // doit le refléter. Espèces → compte « Caisse » ; banque → compte
+      // désigné uniquement (sans compte, rien n'est écrit). Dans la même
+      // transaction que l'écriture : échec = annulation complète.
+      // Dédupliqué par pièce (LITE-EXP-<id>).
+      const compteBancaireId = req.body.compteBancaireId ? Number(req.body.compteBancaireId) : null;
+      await enregistrerDecaissementTresorerie({
+        entrepriseId: req.entrepriseId,
+        montant: numericAmount,
+        dateTransaction: depense[0].dateDepense,
+        reference: `LITE-EXP-${depense[0].id}`,
+        numeroPiece: `LITE-EXP-${depense[0].id}`,
+        modePaiement: modePaiement === 'banque' ? 'virement' : modePaiement,
+        compteBancaireId,
+        description: `Dépense Lite - ${depense[0].description}`,
+        categorie: 'Dépense',
+        tiersNom: null,
+        userId: req.user.id,
+        executor: tx,
+      });
     } else {
       // Les dépenses du workflow standard restent soumises aux approbations.
       await tx.insert(approvalsDepenses).values({
@@ -485,6 +507,29 @@ router.post('/remboursement', async (req, res) => {
       console.log(`Écriture comptable créée pour remboursement dépense ${depenseId}`);
     } catch (comptaError) {
       console.error('Erreur création écriture comptable dépense:', comptaError.message);
+    }
+
+    // Décaissement en trésorerie (miroir des encaissements) : le
+    // remboursement sort de la caisse/banque. Dédupliqué par pièce
+    // (RMB-<id>) : un rejeu ne crée pas de doublon. Comme l'écriture
+    // ci-dessus, un échec est journalisé sans faire échouer la réponse
+    // (le remboursement reste enregistré et rejouable sans doublon).
+    try {
+      await enregistrerDecaissementTresorerie({
+        entrepriseId: entrepriseIdEffectif,
+        montant: montantRembourseNumerique,
+        dateTransaction: new Date(dateRemboursement).toISOString().slice(0, 10),
+        reference: `RMB-${remboursement[0].id}`,
+        numeroPiece: `RMB-${remboursement[0].id}`,
+        modePaiement: methodePaiement === 'especes' ? 'especes' : 'virement',
+        description: `Remboursement dépense ${employeNom} - ${depense.description || 'Dépense'}`,
+        categorie: 'Remboursement dépense',
+        tiersNom: employeNom,
+        userId: req.user?.id || userId || null,
+      });
+      console.log(`Trésorerie alimentée pour remboursement dépense ${depenseId}`);
+    } catch (tresorerieError) {
+      console.error('Erreur alimentation trésorerie remboursement:', tresorerieError.message);
     }
 
     res.json(remboursement[0]);

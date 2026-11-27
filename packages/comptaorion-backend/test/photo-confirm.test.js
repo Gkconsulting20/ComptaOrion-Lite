@@ -29,6 +29,8 @@ async function withApi(initial, run) {
     ecritures: [],
     lignes_ecriture: [],
     parametres_comptables: [],
+    comptes_bancaires: [],
+    transactions_tresorerie: [],
   };
   const queries = [];
   const connection = (current, transaction = false) => ({
@@ -60,6 +62,7 @@ async function withApi(initial, run) {
       const chain = {
         from(value) { table = getTableName(value); return chain; },
         where(value) { predicate = value; return chain; },
+        orderBy() { return chain; },
         for(value) { assert.equal(value, 'update'); lock = true; return chain; },
         limit() { return Promise.resolve(read().slice(0, 1)); },
         then(resolve, reject) { return Promise.resolve().then(read).then(resolve, reject); },

@@ -126,3 +126,95 @@ export async function enregistrerEncaissementTresorerie({
 
   return transaction;
 }
+
+/**
+ * Enregistre un décaissement dans transactions_tresorerie et met à jour
+ * le solde du compte (miroir des encaissements, côté sorties).
+ *
+ * Lacune comblée : les remboursements de dépenses (D 421 / C 57) et les
+ * dépenses directes Lite (D charge / C 57) sortaient de la caisse sans
+ * jamais alimenter le module Trésorerie — comme les encaissements avant
+ * le correctif 79c0f51. Mêmes règles que les encaissements :
+ * - espèces → compte « Caisse » (créé si besoin, lié au 57) ;
+ * - compte bancaire désigné → ce compte ;
+ * - virement / mobile money / carte sans compte désigné → rien n'est
+ *   écrit (aucun compte inventé) ;
+ * - chèque → rien n'est écrit (la sortie n'est comptée qu'au débit).
+ *
+ * Déduplication : un décaissement est identifié par son numeroPiece
+ * (ex. RMB-12, LITE-EXP-45). Si un décaissement existe déjà pour cette
+ * pièce, il est retourné tel quel — un rejeu (réessai réseau, double
+ * clic) ne crée pas de doublon et ne décrémente pas le solde deux fois.
+ */
+export async function enregistrerDecaissementTresorerie({
+  entrepriseId,
+  montant,
+  dateTransaction,
+  reference,
+  numeroPiece,
+  modePaiement,
+  compteBancaireId = null,
+  description,
+  categorie = 'Dépense',
+  tiersNom = null,
+  userId = null,
+  executor = db,
+}) {
+  const amount = Math.round(Number(montant) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw Object.assign(new Error('Le montant du décaissement doit être positif.'), { status: 400 });
+  }
+  if (modePaiement === 'cheque') return null;
+
+  const piece = numeroPiece || reference || null;
+  if (piece) {
+    const [existing] = await executor.select().from(transactionsTresorerie).where(and(
+      eq(transactionsTresorerie.entrepriseId, entrepriseId),
+      eq(transactionsTresorerie.type, 'decaissement'),
+      eq(transactionsTresorerie.numeroPiece, piece),
+    )).limit(1);
+    if (existing) return existing;
+  }
+
+  let compte;
+  if (compteBancaireId) {
+    [compte] = await executor.select().from(comptesBancaires).where(and(
+      eq(comptesBancaires.id, Number(compteBancaireId)),
+      eq(comptesBancaires.entrepriseId, entrepriseId),
+      eq(comptesBancaires.actif, true),
+    )).limit(1);
+    if (!compte) {
+      throw Object.assign(new Error('Compte bancaire introuvable'), { status: 400 });
+    }
+  } else if (modePaiement === 'especes') {
+    compte = await getOrCreateCaisseAccount({ entrepriseId, executor });
+  } else {
+    // Virement, mobile money, carte sans compte désigné : on n'invente
+    // pas de compte bancaire — l'entreprise doit rattacher le sien.
+    return null;
+  }
+
+  const [transaction] = await executor.insert(transactionsTresorerie).values({
+    entrepriseId,
+    compteBancaireId: compte.id,
+    type: 'decaissement',
+    montant: amount.toFixed(2),
+    dateTransaction: dateTransaction || new Date().toISOString().slice(0, 10),
+    categorie,
+    description: description || `Décaissement ${reference || ''}`.trim(),
+    tiersNom,
+    numeroPiece: piece,
+    modePaiement,
+    userId,
+  }).returning();
+
+  await executor.update(comptesBancaires).set({
+    soldeActuel: sql`${comptesBancaires.soldeActuel} - ${amount.toFixed(2)}`,
+    updatedAt: new Date(),
+  }).where(and(
+    eq(comptesBancaires.id, compte.id),
+    eq(comptesBancaires.entrepriseId, entrepriseId),
+  ));
+
+  return transaction;
+}
