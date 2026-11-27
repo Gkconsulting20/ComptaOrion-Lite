@@ -295,7 +295,7 @@ export default function CommercialSpace({ onBack = () => {} }) {
               </div>
               {filtered.length === 0 ? <EmptyState title={search ? 'Aucun résultat trouvé.' : emptyTitle(page)} detail={search ? 'Essayez un autre terme de recherche.' : emptyDetail(page)} /> :
                  <section className="cs-panel"><TableForPage page={page} rows={filtered} onEditClient={setClientToEdit} onEditPlan={setPlanToEdit} onEditRep={setRepToEdit} onCopyReferral={copyReferralLink} /></section>}
-              {page === 'plans' && <p className="cs-inline-note" style={{ marginTop: 12 }}>Les trois forfaits proposés sont préparés automatiquement comme brouillons. Les tarifs affichés restent à valider et le paiement XOF n’est pas activé. Les limites d’utilisateurs et de stockage ne sont pas encore appliquées par le logiciel.</p>}
+              {page === 'plans' && <p className="cs-inline-note" style={{ marginTop: 12 }}>Les deux forfaits proposés sont préparés automatiquement comme brouillons. Les tarifs affichés restent à valider et le paiement XOF n’est pas activé. Les limites d’utilisateurs et de stockage ne sont pas encore appliquées par le logiciel.</p>}
             </section>}
           </>}
         </div>
