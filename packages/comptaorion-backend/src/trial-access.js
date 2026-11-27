@@ -3,7 +3,7 @@ import { db } from './db.js';
 import { saasClients } from './schema.js';
 
 export const TRIAL_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
-const OWNER_EMAIL = (process.env.SAAS_PLATFORM_OWNER_EMAIL || 'admin@orionexa.net').trim().toLowerCase();
+const OWNER_EMAIL = (process.env.SAAS_PLATFORM_OWNER_EMAIL || 'admin@orionexa.com').trim().toLowerCase();
 
 export function getTrialEnd(dateInscription) {
   const start = new Date(dateInscription);

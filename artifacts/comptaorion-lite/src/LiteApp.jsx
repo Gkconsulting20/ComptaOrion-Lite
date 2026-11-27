@@ -99,7 +99,7 @@ export default function LiteApp({ onLogout }) {
 function LiteShell({ user, onLogout }) {
   const [page, setPage] = useState('today');
   const isDemo = user.isDemo === true || localStorage.getItem('demo') === '1';
-  const isPlatformOwner = user.role === 'admin' && String(user.email || '').trim().toLowerCase() === 'admin@orionexa.net';
+  const isPlatformOwner = user.role === 'admin' && String(user.email || '').trim().toLowerCase() === 'admin@orionexa.com';
   const [online, setOnline] = useState(navigator.onLine);
   const [pending, setPending] = useState(0);
   const [pendingItems, setPendingItems] = useState([]);

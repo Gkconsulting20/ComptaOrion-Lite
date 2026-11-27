@@ -94,7 +94,7 @@ test('paramètres plateforme : validation des écritures', async () => {
   const fakeExecutor = {
     execute: async () => ({ rows: [{ cle: 'trial_purge_enabled', valeur: 'true' }] }),
   };
-  const row = await setPlatformParam('trial_purge_enabled', 'true', 'admin@orionexa.net', fakeExecutor);
+  const row = await setPlatformParam('trial_purge_enabled', 'true', 'admin@orionexa.com', fakeExecutor);
   assert.equal(row.valeur, 'true');
 });
 
