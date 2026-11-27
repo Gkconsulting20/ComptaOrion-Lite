@@ -16,6 +16,11 @@ const router = express.Router();
  */
 async function genererNumeroFacture(entrepriseId) {
   const annee = new Date().getFullYear();
+  // Tri par NUMÉRO (et non par createdAt) : plusieurs factures créées
+  // dans la même transaction partagent le même createdAt — l'ordre
+  // serait alors arbitraire et le numéro suivant pouvait déjà exister
+  // (collision 23505, 500 sur lite-sale dans la démo). Les séquences
+  // sont sur 4 chiffres, l'ordre lexicographique donne le plus grand.
   const [lastFacture] = await db
     .select({ numeroFacture: factures.numeroFacture })
     .from(factures)
@@ -23,12 +28,12 @@ async function genererNumeroFacture(entrepriseId) {
       eq(factures.entrepriseId, entrepriseId),
       sql`EXTRACT(YEAR FROM ${factures.dateFacture}::date) = ${annee}`
     ))
-    .orderBy(desc(factures.createdAt))
+    .orderBy(desc(factures.numeroFacture))
     .limit(1);
 
   let numero = 1;
   if (lastFacture?.numeroFacture) {
-    const match = lastFacture.numeroFacture.match(/FACT-(\d{4})-(\d+)/);
+    const match = lastFacture.numeroFacture.match(/FACT-(\d{4})-(?:\d+-)?(\d+)$/);
     if (match) {
       numero = parseInt(match[2]) + 1;
     }
@@ -203,7 +208,7 @@ router.post('/lite-sale', async (req, res) => {
       const totalHT = normalized.reduce((sum, i) => sum + i.quantite * i.prixUnitaire * (1 - i.remise / 100), 0);
       const totalTVA = totalHT * (Number(company?.tauxTva ?? 18) / 100);
       const totalTTC = totalHT + totalTVA;
-      const [last] = await tx.select({ numeroFacture: factures.numeroFacture }).from(factures).where(eq(factures.entrepriseId, req.entrepriseId)).orderBy(desc(factures.createdAt)).limit(1);
+      const [last] = await tx.select({ numeroFacture: factures.numeroFacture }).from(factures).where(eq(factures.entrepriseId, req.entrepriseId)).orderBy(desc(factures.numeroFacture)).limit(1);
       const match = last?.numeroFacture?.match(/FACT-(\d{4})-(?:\d+-)?(\d+)$/);
       const numeroFacture = `FACT-${new Date().getFullYear()}-${req.entrepriseId}-${String(match ? Number(match[2]) + 1 : 1).padStart(4, '0')}`;
       const requestedPayment = Number(paiement?.montant || 0);
@@ -278,10 +283,8 @@ router.post('/lite-sale', async (req, res) => {
     if (result.replay) return res.status(result.status).json(result.body);
     return res.status(result.status).json(result.body);
   } catch (error) {
-    // DIAGNOSTIC TEMPORAIRE (27 nov. 2026) : message réel pour identifier
-    // l'échec de lite-sale en démo. À RETIRER avant la livraison finale.
     console.error('Erreur POST /api/factures/lite-sale:', error);
-    return res.status(error.status || 500).json({ success: false, message: error.status ? error.message : 'Erreur lors de l’enregistrement de la vente', diagnostic: String(error?.message || error) });
+    return res.status(error.status || 500).json({ success: false, message: error.status ? error.message : 'Erreur lors de l’enregistrement de la vente' });
   }
 });
 

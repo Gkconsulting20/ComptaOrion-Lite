@@ -11,6 +11,9 @@ const router = express.Router();
  */
 async function genererNumeroDevis(entrepriseId) {
   const annee = new Date().getFullYear();
+  // Tri par NUMÉRO (et non par createdAt) : même raison que les
+  // factures — des devis créés dans la même transaction partagent le
+  // même createdAt, l'ordre serait arbitraire (collision possible).
   const [lastDevis] = await db
     .select({ numeroDevis: devis.numeroDevis })
     .from(devis)
@@ -18,12 +21,12 @@ async function genererNumeroDevis(entrepriseId) {
       eq(devis.entrepriseId, entrepriseId),
       sql`EXTRACT(YEAR FROM ${devis.dateDevis}::date) = ${annee}`
     ))
-    .orderBy(desc(devis.createdAt))
+    .orderBy(desc(devis.numeroDevis))
     .limit(1);
 
   let numero = 1;
   if (lastDevis?.numeroDevis) {
-    const match = lastDevis.numeroDevis.match(/DEV-(\d{4})-(\d+)/);
+    const match = lastDevis.numeroDevis.match(/DEV-(\d{4})-(?:\d+-)?(\d+)$/);
     if (match) {
       numero = parseInt(match[2]) + 1;
     }
