@@ -1511,6 +1511,11 @@ router.post('/ecritures', async (req, res) => {
       }
     }
 
+    // La table ecritures n'a PAS de colonnes total_debit/total_credit
+    // (ni dans le schéma drizzle, ni en base live) : drizzle ignore
+    // silencieusement ces clés à l'insertion, mais un UPDATE avec
+    // uniquement ces clés produit un « SET » vide et échoue en 500.
+    // Les totaux sont donc calculés à la lecture (balance, journaux).
     const [ecriture] = await db.insert(ecritures).values({
       entrepriseId,
       journalId: parseInt(journalId),
@@ -1518,8 +1523,6 @@ router.post('/ecritures', async (req, res) => {
       reference,
       description,
       valide: false,
-      totalDebit: '0',
-      totalCredit: '0'
     }).returning();
 
     // Si des lignes sont fournies, les créer
@@ -1535,14 +1538,12 @@ router.post('/ecritures', async (req, res) => {
         });
       }
 
-      // Mettre à jour les totaux
-      const totalDebit = lignes.reduce((acc, l) => acc + parseFloat(l.debit || 0), 0);
-      const totalCredit = lignes.reduce((acc, l) => acc + parseFloat(l.credit || 0), 0);
-      await db.update(ecritures)
-        .set({ totalDebit: String(totalDebit), totalCredit: String(totalCredit) })
-        .where(eq(ecritures.id, ecriture.id));
-      ecriture.totalDebit = String(totalDebit);
-      ecriture.totalCredit = String(totalCredit);
+      // Totaux renvoyés dans la réponse (non persistés : la table
+      // ecritures n'a pas de colonnes total_debit/total_credit).
+      const totalDebitLignes = lignes.reduce((acc, l) => acc + parseFloat(l.debit || 0), 0);
+      const totalCreditLignes = lignes.reduce((acc, l) => acc + parseFloat(l.credit || 0), 0);
+      ecriture.totalDebit = String(totalDebitLignes);
+      ecriture.totalCredit = String(totalCreditLignes);
     }
 
     await db.insert(auditLogs).values({
