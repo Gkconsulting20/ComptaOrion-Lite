@@ -94,3 +94,38 @@ export async function cacheWrite(key, value) {
     });
   } catch { /* IndexedDB is optional */ }
 }
+
+export async function cacheDelete(key) {
+  try {
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('cache', 'readwrite');
+      tx.objectStore('cache').delete(key);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch { /* IndexedDB is optional */ }
+}
+
+// Vidage du scope démo (réinitialisation / sortie de démo) : file
+// d'attente hors-ligne du scope + cache de données de l'entreprise.
+// La purge serveur ne peut pas effacer ce cache local (données
+// fictives, sur l'appareil du visiteur) — c'est au client de le vider.
+export async function clearDemoScope(scope, cacheKey) {
+  try {
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(['queue', 'cache'], 'readwrite');
+      const queueStore = tx.objectStore('queue');
+      const listRequest = queueStore.getAll();
+      listRequest.onsuccess = () => {
+        for (const item of listRequest.result || []) {
+          if (item.scope === scope) queueStore.delete(item.opId);
+        }
+      };
+      tx.objectStore('cache').delete(cacheKey);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch { /* IndexedDB is optional */ }
+}

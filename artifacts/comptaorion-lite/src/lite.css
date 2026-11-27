@@ -1346,3 +1346,63 @@
   .financial-summary-grid { grid-template-columns: 1fr; }
   .financial-tabs button { flex: 1; padding: 10px 6px; font-size: 12px; }
 }
+
+/* Bandeau démo (style Santé, safran) : persistant en haut de l'app. */
+.demo-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  background: #f2b544;
+  color: #172326;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.demo-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.demo-banner-actions button {
+  border: 1px solid #172326;
+  border-radius: 7px;
+  padding: 5px 10px;
+  color: #172326;
+  background: transparent;
+  font: 600 12px 'DM Sans', sans-serif;
+  cursor: pointer;
+}
+.demo-banner-actions button:hover {
+  background: rgb(23 35 38 / 10%);
+}
+
+/* Bouton « Essayer la démo » (page de connexion, secondaire). */
+.auth-demo {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--lite-line);
+  border-radius: 9px;
+  padding: 0 17px;
+  color: var(--lite-ink);
+  background: var(--lite-card);
+  font: 600 13px 'DM Sans', sans-serif;
+  cursor: pointer;
+}
+.auth-demo:hover:not(:disabled) {
+  border-color: var(--lite-coral);
+  color: var(--lite-coral);
+}
+.auth-demo:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+.auth-demo-note {
+  margin: -6px 0 0;
+  color: var(--lite-muted);
+  text-align: center;
+  font-size: 12px;
+}

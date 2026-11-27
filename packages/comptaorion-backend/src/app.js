@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import authRoutes from './routes/auth.js';
+import demoRoutes from './routes/demo.js';
 import authSecurityRoutes from './routes/auth-security.js';
 import clientsRoutes from './routes/clients.js';
 import produitsRoutes from './routes/produits.js';
@@ -30,6 +31,9 @@ app.use(express.json({ limit: '100kb' }));
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', application: 'ComptaOrion Lite' }));
 app.get('/api/healthz', (_req, res) => res.json({ status: 'ok', application: 'ComptaOrion Lite' }));
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', demoRoutes); // Mode démo public : POST /api/auth/demo (+ /reset).
+// /api/public n'est PAS monté dans Lite (public-inscription.js non
+// référencé) : la démo vit sous /api/auth, déjà public.
 app.use('/api/auth-security', authSecurityRoutes);
 app.use('/api/commercial-portal', commercialPortalRoutes);
 app.use('/api/saas-admin', authMiddleware, requirePlatformOwner, saasPlatformAdminRoutes);

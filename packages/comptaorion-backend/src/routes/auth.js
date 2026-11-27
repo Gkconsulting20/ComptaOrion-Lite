@@ -237,6 +237,7 @@ router.post('/login', async (req, res) => {
         role: user.role,
         entrepriseId: user.entrepriseId,
         trialEndsAt: saasAccess.trialEndsAt,
+        isDemo: entreprise?.isDemo ?? false,
       },
       entreprise,
       token,
@@ -350,6 +351,7 @@ router.get('/me', async (req, res) => {
         role: user.role,
         entrepriseId: user.entrepriseId,
         trialEndsAt: saasAccess.trialEndsAt,
+        isDemo: entreprise?.isDemo ?? false,
       },
       entreprise,
     });

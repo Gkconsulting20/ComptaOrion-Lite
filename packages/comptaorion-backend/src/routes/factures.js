@@ -867,6 +867,19 @@ router.post('/:id/send-email', async (req, res) => {
       });
     }
 
+    // Démo : aucun e-mail sortant (facture, relance, invitation).
+    const [entrepriseDemoCheck] = await db
+      .select({ isDemo: entreprises.isDemo })
+      .from(entreprises)
+      .where(eq(entreprises.id, req.entrepriseId))
+      .limit(1);
+    if (entrepriseDemoCheck?.isDemo) {
+      return res.status(403).json({
+        success: false,
+        message: 'L’envoi d’e-mails est indisponible en démonstration',
+      });
+    }
+
     const [entrepriseData] = await db
       .select()
       .from(entreprises)

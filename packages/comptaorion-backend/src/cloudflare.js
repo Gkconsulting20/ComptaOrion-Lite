@@ -19,6 +19,37 @@ function getServer() {
 }
 
 export default {
+  // Purge quotidienne (03:00 UTC, voir [triggers] dans wrangler.toml) :
+  // démos de plus de 7 jours + essais expirés depuis plus de 30 jours
+  // de blocage. GATED par trial_purge_enabled (défaut false) : tant
+  // que le paramètre est à false, le run est un dry-run (sélection +
+  // journalisation seulement, aucune suppression réelle). Le passage
+  // en suppression réelle se fait dans parametres_plateforme, jamais
+  // en modifiant le code.
+  async scheduled(_event, env, executionContext) {
+    let database;
+    try {
+      database = createDatabaseContext(env.DATABASE_URL, { worker: true });
+      const result = await runWithDatabaseContext(database, async () => {
+        const { getPlatformParams, purgeExpiredTrials } = await import('./services/trialLifecycle.js');
+        const params = await getPlatformParams();
+        return purgeExpiredTrials({
+          dryRun: !params.trial_purge_enabled,
+          supprimePar: 'systeme:purge-essais',
+        });
+      });
+      console.log(JSON.stringify({ cron: 'purge-essais', ...result, supprimes: result.supprimes?.length, ignores: result.ignores?.length }));
+    } catch (error) {
+      console.error('ComptaOrion Lite : échec de la purge planifiée.', error?.message || error);
+    } finally {
+      if (database) {
+        executionContext.waitUntil(database.pool.end().catch(() => {
+          console.error('ComptaOrion Lite : fermeture du pool PostgreSQL impossible.');
+        }));
+      }
+    }
+  },
+
   async fetch(request, env, executionContext) {
     const { pathname } = new URL(request.url);
     if (pathname !== '/api' && !pathname.startsWith('/api/')) {

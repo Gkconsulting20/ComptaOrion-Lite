@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'wouter';
 import api from './api.js';
 import { Login } from './pages/Login';
-import { cacheRead, cacheWrite, listQueue, queueWrite, removeQueue } from './liteDb.js';
+import { cacheRead, cacheWrite, clearDemoScope, listQueue, queueWrite, removeQueue } from './liteDb.js';
 import AiAssistant from './AiAssistant.jsx';
 import PaymentAnalysis from './PaymentAnalysis.jsx';
 import FinancialStatements from './FinancialStatements.jsx';
@@ -22,6 +22,17 @@ const dateOf = (x) => String(x || '').slice(0, 10);
 const operationId = () => `lite-${Date.now().toString(36)}-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`;
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
+function DemoBanner({ t, onReset, onCreateAccount, onQuit }) {
+  return <div className="demo-banner" data-testid="banner-demo" role="status">
+    <span><strong>{t('Démonstration', 'Demonstration')}</strong> — {t('Données fictives, ne saisissez aucune donnée réelle.', 'Fictitious data — do not enter any real data.')}</span>
+    <span className="demo-banner-actions">
+      <button type="button" onClick={onCreateAccount}>{t('Créer mon compte', 'Create my account')}</button>
+      <button type="button" onClick={onReset}>{t('Réinitialiser la démo', 'Reset the demo')}</button>
+      <button type="button" onClick={onQuit}>{t('Quitter la démo', 'Leave the demo')}</button>
+    </span>
+  </div>;
+}
+
 function Modal({ title, children, onClose }) {
   return <div className="lite-modal-backdrop" role="presentation"><section className="lite-modal" role="dialog" aria-modal="true">
     <header><h2>{title}</h2><button className="icon-button" onClick={onClose} aria-label="Fermer">×</button></header>{children}
@@ -39,6 +50,7 @@ export default function LiteApp({ onLogout }) {
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('sessionId');
       localStorage.removeItem('user');
+      localStorage.removeItem('demo');
       setAccessMessage(event.detail?.error || 'La période d’essai est terminée. Contactez ComptaOrion pour réactiver votre accès.');
       setUser(null);
     };
@@ -51,6 +63,7 @@ export default function LiteApp({ onLogout }) {
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('sessionId');
     localStorage.removeItem('user');
+    localStorage.removeItem('demo');
     setAccessMessage('La période d’essai est terminée. Contactez ComptaOrion pour réactiver votre accès.');
     setUser(null);
   }, [locallyExpired]);
@@ -76,13 +89,16 @@ export default function LiteApp({ onLogout }) {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
   if (!localStorage.getItem('token') || !user || locallyExpired) {
-    return <Login initialMessage={accessMessage} onLoginSuccess={(nextUser) => { setAccessMessage(''); setUser(nextUser); }} />;
+    const initialMode = localStorage.getItem('lite-initial-mode') || 'login';
+    if (initialMode !== 'login') localStorage.removeItem('lite-initial-mode');
+    return <Login initialMessage={accessMessage} initialMode={initialMode} onLoginSuccess={(nextUser) => { setAccessMessage(''); setUser(nextUser); }} />;
   }
   return <LiteShell user={user} onLogout={() => { setUser(null); onLogout?.(); }} />;
 }
 
 function LiteShell({ user, onLogout }) {
   const [page, setPage] = useState('today');
+  const isDemo = user.isDemo === true || localStorage.getItem('demo') === '1';
   const isPlatformOwner = user.role === 'admin' && String(user.email || '').trim().toLowerCase() === 'admin@orionexa.net';
   const [online, setOnline] = useState(navigator.onLine);
   const [pending, setPending] = useState(0);
@@ -202,8 +218,32 @@ function LiteShell({ user, onLogout }) {
         keepalive: true,
       }).catch(() => {});
     }
-    ['token', 'refreshToken', 'sessionId', 'user', 'entrepriseId', 'entreprise'].forEach((key) => localStorage.removeItem(key));
+    ['token', 'refreshToken', 'sessionId', 'user', 'entrepriseId', 'entreprise', 'demo'].forEach((key) => localStorage.removeItem(key));
     onLogout?.();
+  };
+  // Démo : réinitialisation (nouvelle démo seedée neuve, session
+  // remplacée, cache IndexedDB du scope vidé) et conversion.
+  const resetDemo = async () => {
+    if (!window.confirm('Réinitialiser la démonstration ? Toutes les modifications faites dans cette démo seront perdues.')) return;
+    setToast(t('Réinitialisation de la démo…', 'Resetting the demo…'));
+    try {
+      const data = await api.post('/auth/demo/reset', {});
+      await clearDemoScope(scope, `lite-data-${user.entrepriseId || user.id}`);
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('refreshToken', data.refreshToken);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      localStorage.setItem('entrepriseId', data.user.entrepriseId);
+      localStorage.setItem('demo', '1');
+      if (data.entreprise) localStorage.setItem('entreprise', JSON.stringify(data.entreprise));
+      if (data.session?.id) localStorage.setItem('sessionId', data.session.id);
+      window.location.reload();
+    } catch (error) {
+      setToast(error?.message || t('Impossible de réinitialiser la démo.', 'Could not reset the demo.'));
+    }
+  };
+  const createAccountFromDemo = () => {
+    localStorage.setItem('lite-initial-mode', 'register');
+    logout();
   };
   const saveSettings = (next) => { setSettings(next); localStorage.setItem(`lite-settings-${user.id || user.entrepriseId}`, JSON.stringify(next)); setToast(t('Préférences enregistrées', 'Preferences saved')); };
   const nav = [
@@ -216,7 +256,7 @@ function LiteShell({ user, onLogout }) {
   if (page === 'commercial' && isPlatformOwner) return <CommercialSpace onBack={() => setPage('today')} />;
   return <div className="lite-app">
       <aside className="lite-sidebar"><div className="lite-brand"><img src="/logo-comptaorion.png" alt="" /><span>ComptaOrion <b>Lite</b></span></div><nav>{nav.map(([id, label, mark]) => <button key={id} data-testid={`nav-${id}`} className={page === id ? 'active' : ''} onClick={() => setPage(id)}><i>{mark}</i>{label}</button>)}</nav><div className="lite-side-foot"><div className="lite-side-user"><span className="avatar">{(user.prenom || user.nom || 'O').slice(0, 1).toUpperCase()}</span><span>{user.prenom || user.nom || 'Mon entreprise'}</span></div><button className="lite-logout" data-testid="button-logout" onClick={logout}><span aria-hidden="true">↪</span>{t('Se déconnecter', 'Log out')}</button></div></aside>
-       <main className="lite-main"><header className="lite-topbar"><div><span className={`network-dot ${online ? 'is-online' : ''}`}></span>{online ? t('En ligne', 'Online') : t('Hors connexion', 'Offline')}</div><div className="top-actions"><Link className="lite-guide-link" href="/guide">{t('Guide', 'Guide')}</Link>{isPlatformOwner && <button className="owner-portal-link" data-testid="nav-commercial-mobile" onClick={() => setPage('commercial')}>{t('Espace commercial', 'Commercial space')}</button>}{pending > 0 && <button className="sync-pill" onClick={syncQueue}>{pending} {t('à synchroniser', 'pending')}</button>}<button className="mobile-menu" onClick={() => setPage('today')}>ComptaOrion <b>Lite</b></button><button className="mobile-logout" data-testid="button-logout-mobile" onClick={logout}>{t('Déconnexion', 'Log out')}</button></div></header><div className="lite-content"><div className="lite-page">{page === 'today' && <Today data={visibleData} settings={settings} t={t} setPage={setPage} />}
+       <main className="lite-main">{isDemo && <DemoBanner t={t} onReset={resetDemo} onCreateAccount={createAccountFromDemo} onQuit={logout} />}<header className="lite-topbar"><div><span className={`network-dot ${online ? 'is-online' : ''}`}></span>{online ? t('En ligne', 'Online') : t('Hors connexion', 'Offline')}</div><div className="top-actions"><Link className="lite-guide-link" href="/guide">{t('Guide', 'Guide')}</Link>{isPlatformOwner && <button className="owner-portal-link" data-testid="nav-commercial-mobile" onClick={() => setPage('commercial')}>{t('Espace commercial', 'Commercial space')}</button>}{pending > 0 && <button className="sync-pill" onClick={syncQueue}>{pending} {t('à synchroniser', 'pending')}</button>}<button className="mobile-menu" onClick={() => setPage('today')}>ComptaOrion <b>Lite</b></button><button className="mobile-logout" data-testid="button-logout-mobile" onClick={logout}>{t('Déconnexion', 'Log out')}</button></div></header><div className="lite-content"><div className="lite-page">{page === 'today' && <Today data={visibleData} settings={settings} t={t} setPage={setPage} />}
         {page === 'sales' && <Sales data={visibleData} settings={settings} t={t} write={write} reload={load} notify={setToast} />}
       {page === 'debts' && <Debts data={data} settings={settings} t={t} write={write} reload={load} />}
        {page === 'expenses' && <Expenses data={visibleData} user={user} settings={settings} t={t} write={write} reload={load} />}

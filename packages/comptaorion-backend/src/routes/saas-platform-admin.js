@@ -10,8 +10,16 @@ import {
   saasCommerciaux,
   saasVentes,
   users,
+  suppressionsEntreprises,
+  parametresPlateforme,
 } from '../schema.js';
 import { creerAbonnementPayant } from '../saas-offre.js';
+import {
+  getPlatformParams,
+  setPlatformParam,
+  findPurgeCandidates,
+  purgeExpiredTrials,
+} from '../services/trialLifecycle.js';
 
 const router = express.Router();
 const OWNER_EMAIL = (process.env.SAAS_PLATFORM_OWNER_EMAIL || 'admin@orionexa.net').trim().toLowerCase();
@@ -67,7 +75,9 @@ router.get('/dashboard', async (req, res) => {
           COUNT(*) FILTER (WHERE statut = 'actif')::int AS actifs,
           COUNT(*) FILTER (WHERE statut = 'trial')::int AS essais,
           COUNT(*) FILTER (WHERE statut = 'suspendu')::int AS suspendus
-        FROM saas_clients
+        FROM saas_clients sc
+        JOIN entreprises e ON e.id = sc.entreprise_id
+        WHERE e.is_demo = false
       `),
       db.execute(sql`
         SELECT COUNT(*) FILTER (WHERE statut = 'actif')::int AS abonnements_actifs,
@@ -80,12 +90,17 @@ router.get('/dashboard', async (req, res) => {
           COALESCE(SUM(montant_mensuel) FILTER (WHERE statut = 'actif'
             AND COALESCE(date_debut_facturation, date_debut) <= CURRENT_DATE
             AND date_expiration > COALESCE(date_debut_facturation, date_debut)), 0)::numeric AS revenu_mensuel
-        FROM abonnements
+        FROM abonnements a
+        JOIN entreprises e ON e.id = a.entreprise_id
+        WHERE e.is_demo = false
       `),
       db.execute(sql`
-        SELECT COALESCE(SUM(montant_vente) FILTER (WHERE statut = 'confirmée'), 0)::numeric AS ventes,
-          COALESCE(SUM(ROUND(montant_vente * 0.10, 2)) FILTER (WHERE statut = 'confirmée'), 0)::numeric AS commissions
-        FROM saas_ventes
+        SELECT COALESCE(SUM(montant_vente) FILTER (WHERE v.statut = 'confirmée'), 0)::numeric AS ventes,
+          COALESCE(SUM(ROUND(montant_vente * 0.10, 2)) FILTER (WHERE v.statut = 'confirmée'), 0)::numeric AS commissions
+        FROM saas_ventes v
+        JOIN saas_clients sc ON sc.id = v.client_id
+        JOIN entreprises e ON e.id = sc.entreprise_id
+        WHERE e.is_demo = false
       `),
       db.select({
         id: saasClients.id,
@@ -98,6 +113,7 @@ router.get('/dashboard', async (req, res) => {
       })
         .from(saasClients)
         .leftJoin(entreprises, eq(saasClients.entrepriseId, entreprises.id))
+        .where(eq(entreprises.isDemo, false))
         .orderBy(desc(saasClients.dateInscription))
         .limit(8),
     ]);
@@ -135,6 +151,7 @@ router.get('/clients', async (_req, res) => {
       .from(saasClients)
       .leftJoin(entreprises, eq(saasClients.entrepriseId, entreprises.id))
       .leftJoin(saasCommerciaux, eq(saasClients.commercialId, saasCommerciaux.id))
+      .where(eq(entreprises.isDemo, false))
       .orderBy(desc(saasClients.dateInscription));
     res.json(clients);
   } catch (error) {
@@ -156,6 +173,16 @@ router.patch('/clients/:id', async (req, res) => {
   if (Object.keys(updates).length === 1) return res.status(400).json({ error: 'Aucune modification à enregistrer.' });
 
   try {
+    // Démo : une entreprise de démonstration ne doit jamais être
+    // convertie ou modifiée depuis l'Admin SaaS (ni statut, ni notes).
+    const [target] = await db.select({ isDemo: entreprises.isDemo })
+      .from(saasClients)
+      .leftJoin(entreprises, eq(saasClients.entrepriseId, entreprises.id))
+      .where(eq(saasClients.id, id))
+      .limit(1);
+    if (target?.isDemo) {
+      return res.status(403).json({ error: 'Une entreprise de démonstration ne peut pas être modifiée depuis l’administration.' });
+    }
     const [client] = await db.update(saasClients)
       .set(updates)
       .where(eq(saasClients.id, id))
@@ -380,6 +407,7 @@ router.get('/abonnements', async (_req, res) => {
       .from(abonnements)
       .leftJoin(entreprises, eq(abonnements.entrepriseId, entreprises.id))
       .leftJoin(plansAbonnement, eq(abonnements.planId, plansAbonnement.id))
+      .where(eq(entreprises.isDemo, false))
       .orderBy(desc(abonnements.createdAt));
     res.json(list);
   } catch (error) {
@@ -439,6 +467,7 @@ router.get('/ventes', async (_req, res) => {
       .leftJoin(saasClients, eq(saasVentes.clientId, saasClients.id))
       .leftJoin(entreprises, eq(saasClients.entrepriseId, entreprises.id))
       .leftJoin(saasCommerciaux, eq(saasVentes.commercialId, saasCommerciaux.id))
+      .where(eq(entreprises.isDemo, false))
       .orderBy(desc(saasVentes.dateVente))
       .limit(200);
     res.json(list);
@@ -631,6 +660,79 @@ router.get('/reports', async (req, res) => {
   } catch (error) {
     req.log?.error({ err: error }, 'Échec de génération du rapport commercial');
     res.status(500).json({ error: 'Impossible de générer le rapport commercial.' });
+  }
+});
+
+// ==========================================
+// CYCLE DE VIE ESSAI → BLOCAGE → SUPPRESSION (27 nov. 2026)
+// Phase 1 : contrôle manuel par l'administrateur de la plateforme.
+// La purge réelle exige une action explicite (dryRun: false) ; le
+// cron quotidien (phase 2) reste gated par trial_purge_enabled.
+// ==========================================
+
+router.get('/purge-candidats', async (_req, res) => {
+  try {
+    const params = await getPlatformParams();
+    const found = await findPurgeCandidates(params, new Date());
+    res.json({ ...found, purgeAutomatiqueActivee: params.trial_purge_enabled });
+  } catch (error) {
+    res.status(500).json({ error: 'Impossible de lister les candidats à la purge.' });
+  }
+});
+
+router.post('/purge-essais-expires', async (req, res) => {
+  try {
+    const { dryRun = true, ids } = req.body || {};
+    if (dryRun !== undefined && typeof dryRun !== 'boolean') {
+      return res.status(400).json({ error: 'dryRun doit être un booléen.' });
+    }
+    if (ids !== undefined && (!Array.isArray(ids) || ids.some((v) => !Number.isSafeInteger(Number(v))))) {
+      return res.status(400).json({ error: 'ids doit être une liste d’identifiants.' });
+    }
+    const result = await purgeExpiredTrials({
+      dryRun,
+      ids: ids?.map(Number),
+      supprimePar: req.platformOwner?.email || 'admin@orionexa.net',
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'La purge a échoué.' });
+  }
+});
+
+router.get('/suppressions', async (req, res) => {
+  try {
+    const page = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(String(req.query.limit || '50'), 10) || 50));
+    const offset = (page - 1) * limit;
+    const rows = await db.select().from(suppressionsEntreprises)
+      .orderBy(desc(suppressionsEntreprises.createdAt))
+      .limit(limit)
+      .offset(offset);
+    const [{ total }] = await db.select({ total: sql`COUNT(*)::int` }).from(suppressionsEntreprises);
+    res.json({ page, limit, total: Number(total || 0), data: rows });
+  } catch (error) {
+    res.status(500).json({ error: 'Impossible de charger le journal des suppressions.' });
+  }
+});
+
+router.get('/parametres-plateforme', async (_req, res) => {
+  try {
+    const rows = await db.select().from(parametresPlateforme).orderBy(parametresPlateforme.cle);
+    const effectifs = await getPlatformParams();
+    res.json({ parametres: rows, effectifs });
+  } catch (error) {
+    res.status(500).json({ error: 'Impossible de charger les paramètres de la plateforme.' });
+  }
+});
+
+router.patch('/parametres-plateforme', async (req, res) => {
+  try {
+    const { cle, valeur } = req.body || {};
+    const row = await setPlatformParam(cle, valeur, req.platformOwner?.email || 'admin@orionexa.net');
+    res.json(row);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || 'Impossible de mettre à jour le paramètre.' });
   }
 });
 

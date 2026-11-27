@@ -4,6 +4,12 @@ compatibility_date = "2026-10-16"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
+# Purge quotidienne des démos et des essais expirés (03:00 UTC).
+# Le handler scheduled() reste en dry-run tant que
+# trial_purge_enabled = false dans parametres_plateforme.
+[triggers]
+crons = ["0 3 * * *"]
+
 [build]
 command = "pnpm run build:cloudflare"
 

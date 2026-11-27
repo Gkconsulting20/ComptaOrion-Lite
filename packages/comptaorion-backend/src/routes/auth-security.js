@@ -1,7 +1,7 @@
 import express from 'express';
 import { db } from '../db.js';
 import crypto from 'crypto';
-import { users, sessions, auditConnexions, passwordResetTokens, permissions } from '../schema.js';
+import { users, sessions, auditConnexions, passwordResetTokens, permissions, entreprises } from '../schema.js';
 import { generateToken, generateRefreshToken, verifyRefreshToken, hashPassword, comparePassword, authMiddleware } from '../auth.js';
 import { eq, and, gt, isNull } from 'drizzle-orm';
 import { getSaasAccess, trialAccessMiddleware } from '../trial-access.js';
@@ -64,6 +64,12 @@ router.post('/login', async (req, res) => {
     const refreshToken = generateRefreshToken(user);
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
 
+    const [entreprise] = await db
+      .select({ isDemo: entreprises.isDemo })
+      .from(entreprises)
+      .where(eq(entreprises.id, user.entrepriseId))
+      .limit(1);
+
     // Créer session avec l'entrepriseId de l'utilisateur trouvé
     const session = await db.insert(sessions).values({
       userId: user.id,
@@ -95,6 +101,7 @@ router.post('/login', async (req, res) => {
         role: user.role,
           entrepriseId: user.entrepriseId,
           trialEndsAt: saasAccess.trialEndsAt,
+          isDemo: entreprise?.isDemo ?? false,
       },
       token,
       refreshToken,
@@ -240,6 +247,16 @@ router.post('/forgot-password', async (req, res) => {
 
     if (!user) {
       return res.status(200).json({ message: 'Si l\'email existe, un lien de réinitialisation a été envoyé' });
+    }
+
+    // Démo : l'adresse démo n'existe pas, aucun e-mail ne doit partir.
+    const [entrepriseDemo] = await db
+      .select({ isDemo: entreprises.isDemo })
+      .from(entreprises)
+      .where(eq(entreprises.id, user.entrepriseId))
+      .limit(1);
+    if (entrepriseDemo?.isDemo) {
+      return res.status(403).json({ error: 'La réinitialisation du mot de passe est indisponible en démonstration.' });
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');

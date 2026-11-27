@@ -57,6 +57,10 @@ export const entreprises = pgTable('entreprises', {
   factureAfficherLogo: boolean('facture_afficher_logo').default(true),
   
   actif: boolean('actif').default(true),
+  // Entreprise de démonstration publique (mode démo, 27 nov. 2026) :
+  // tenant jetable, exclu des statistiques SaaS, purgé après
+  // DEMO_RETENTION_DAYS (défaut 7 jours). Jamais converti en client.
+  isDemo: boolean('is_demo').default(false),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -1720,4 +1724,48 @@ export const devises = pgTable('devises', {
   decimales: integer('decimales').default(2),
   actif: boolean('actif').default(true),
   createdAt: timestamp('created_at').defaultNow(),
+});
+
+// ==========================================
+// MODE DÉMO + CYCLE DE VIE ESSAI (27 nov. 2026)
+// ==========================================
+
+// Journal des suppressions d'entreprises (purge démos / essais expirés).
+// SANS foreign key vers entreprises : la ligne survit à l'entreprise
+// supprimée (audit_logs est inutilisable ici : entreprise_id NOT NULL
+// avec FK). Rétention illimitée pour l'instant (décision Cap si purge).
+export const suppressionsEntreprises = pgTable('suppressions_entreprises', {
+  id: serial('id').primaryKey(),
+  application: varchar('application', { length: 20 }).notNull().default('comptaorion-lite'),
+  entrepriseId: integer('entreprise_id').notNull(),
+  entrepriseNom: text('entreprise_nom').notNull(),
+  entrepriseEmail: text('entreprise_email'),
+  motif: varchar('motif', { length: 50 }).notNull(), // essai_expire_non_converti | demo_expiree | manuel_admin | demo_reset
+  dateInscription: timestamp('date_inscription', { withTimezone: true }),
+  dateFinEssai: timestamp('date_fin_essai', { withTimezone: true }),
+  dateBlocage: timestamp('date_blocage', { withTimezone: true }),
+  dateSuppressionEligible: timestamp('date_suppression_eligible', { withTimezone: true }),
+  dateSuppression: timestamp('date_suppression', { withTimezone: true }).notNull().defaultNow(),
+  delaiJoursApplique: integer('delai_jours_applique').notNull(),
+  supprimePar: text('supprime_par').notNull(), // 'systeme:purge-essais' | e-mail admin
+  details: jsonb('details'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Paramètres plateforme (clé/valeur), lus par le job de purge à chaque
+// exécution. Repli : variable d'environnement, puis défaut.
+export const parametresPlateforme = pgTable('parametres_plateforme', {
+  cle: varchar('cle', { length: 100 }).primaryKey(),
+  valeur: text('valeur').notNull(),
+  description: text('description'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: text('updated_by'),
+});
+
+// Compteur anti-abus de la route démo publique : 5 créations par IP et
+// par jour. Les lignes de plus de 7 jours sont purgées par le job.
+export const demoCreations = pgTable('demo_creations', {
+  id: serial('id').primaryKey(),
+  ipAddress: varchar('ip_address', { length: 45 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

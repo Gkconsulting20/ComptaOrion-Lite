@@ -19,8 +19,8 @@ const initialRegister = {
   commercialId: new URLSearchParams(window.location.search).get('ref') || '',
 };
 
-export function Login({ onLoginSuccess, initialMessage = '' }) {
-  const [mode, setMode] = useState('login');
+export function Login({ onLoginSuccess, initialMessage = '', initialMode = 'login' }) {
+  const [mode, setMode] = useState(initialMode);
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [registerData, setRegisterData] = useState(initialRegister);
   const [tauxTvaChoix, setTauxTvaChoix] = useState('18');
@@ -108,6 +108,29 @@ export function Login({ onLoginSuccess, initialMessage = '' }) {
     }
   };
 
+  // Démo publique : une entreprise fictive seedée, sans compte ni
+  // mot de passe. La session est stockée exactement comme après un
+  // login (trialEndsAt null : LiteApp ne déconnecte pas la démo).
+  const handleDemo = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const data = await api.post('/auth/demo', {});
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('refreshToken', data.refreshToken);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      localStorage.setItem('entrepriseId', data.user.entrepriseId);
+      localStorage.setItem('demo', '1');
+      if (data.entreprise) localStorage.setItem('entreprise', JSON.stringify(data.entreprise));
+      if (data.session?.id) localStorage.setItem('sessionId', data.session.id);
+      onLoginSuccess(data.user);
+    } catch (requestError) {
+      setError(requestError.message || 'Impossible de créer la démonstration');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <main className="auth-shell">
       <div className="auth-orbit auth-orbit-one" aria-hidden="true" />
@@ -143,6 +166,8 @@ export function Login({ onLoginSuccess, initialMessage = '' }) {
                 <input data-testid="input-password" type="password" autoComplete="current-password" value={formData.password} onChange={(event) => setFormData({ ...formData, password: event.target.value })} required />
               </label>
               <button className="auth-submit" type="submit" disabled={loading}>{loading ? 'Connexion…' : 'Se connecter'}<span aria-hidden="true">→</span></button>
+              <button className="auth-demo" type="button" disabled={loading} onClick={handleDemo}>Essayer la démo</button>
+              <p className="auth-demo-note">Une entreprise fictive, prête en quelques secondes — sans compte, sans engagement.</p>
               <button className="auth-quiet-link" type="button" onClick={() => changeMode('forgot')}>Mot de passe oublié ?</button>
               <div className="auth-switch">Pas encore de compte ? <button type="button" onClick={() => changeMode('register')}>Créer un compte</button></div>
             </form>
