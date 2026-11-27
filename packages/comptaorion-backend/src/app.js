@@ -9,7 +9,6 @@ import facturesRoutes from './routes/factures.js';
 import depensesRoutes from './routes/dépenses.js';
 import financialReportsRoutes from './routes/financial-reports.js';
 import aiRoutes from './routes/ai.js';
-import litePurchasesRoutes from './routes/lite-purchases.js';
 import liteAccountingRoutes from './routes/lite-accounting.js';
 import clotureExerciceRoutes from './routes/cloture-exercice.js';
 import comptabiliteRoutes from './routes/comptabilite.js';
@@ -41,7 +40,6 @@ app.use('/api/factures', facturesRoutes);
 app.use('/api/depenses', depensesRoutes);
 app.use('/api/financial-reports', financialReportsRoutes);
 app.use('/api/ai', aiRoutes);
-app.use('/api', litePurchasesRoutes);
 app.use('/api', liteAccountingRoutes);
 app.use('/api', clotureExerciceRoutes);
 // Comptabilité générale (journaux, grand livre, balance, bilan, compte
