@@ -278,7 +278,10 @@ router.post('/lite-sale', async (req, res) => {
     if (result.replay) return res.status(result.status).json(result.body);
     return res.status(result.status).json(result.body);
   } catch (error) {
-    return res.status(error.status || 500).json({ success: false, message: error.status ? error.message : 'Erreur lors de l’enregistrement de la vente' });
+    // DIAGNOSTIC TEMPORAIRE (27 nov. 2026) : message réel pour identifier
+    // l'échec de lite-sale en démo. À RETIRER avant la livraison finale.
+    console.error('Erreur POST /api/factures/lite-sale:', error);
+    return res.status(error.status || 500).json({ success: false, message: error.status ? error.message : 'Erreur lors de l’enregistrement de la vente', diagnostic: String(error?.message || error) });
   }
 });
 
