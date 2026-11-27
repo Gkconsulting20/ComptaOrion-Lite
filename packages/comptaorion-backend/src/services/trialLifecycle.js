@@ -197,7 +197,9 @@ const DELETE_BY_ENTREPRISE_ID = [
   'audit_logs',
   'audit_connexions',
   'sessions',
-  'password_reset_tokens',
+  // password_reset_tokens et saas_ventes N'ONT PAS de colonne
+  // entreprise_id en base live (vérifié 27 nov. 2026) : elles sont
+  // supprimées par sous-requête dans deleteEnterpriseData, pas ici.
   'lite_idempotency',
   'export_history',
   'api_keys',
@@ -249,7 +251,6 @@ const DELETE_BY_ENTREPRISE_ID = [
   'produit_prix',
   'taux_change',
   'factures_abonnement',
-  'saas_ventes',
   'abonnements',
   'saas_clients',
   'users',
@@ -281,6 +282,17 @@ export async function deleteEnterpriseData(tx, entrepriseId, entrepriseEmail = n
   )));
   counts.webhook_deliveries = deletedCount(await tx.execute(sql.raw(
     `DELETE FROM webhook_deliveries WHERE subscription_id IN (SELECT id FROM webhook_subscriptions WHERE entreprise_id = ${id})`,
+  )));
+  // password_reset_tokens : pas de colonne entreprise_id — clé par
+  // l'utilisateur (user_id). saas_ventes : pas de colonne entreprise_id —
+  // clés par le client SaaS (client_id) et l'abonnement (abonnement_id).
+  // Les deux doivent être supprimées AVANT users / abonnements /
+  // saas_clients (plus bas dans la liste).
+  counts.password_reset_tokens = deletedCount(await tx.execute(sql.raw(
+    `DELETE FROM password_reset_tokens WHERE user_id IN (SELECT id FROM users WHERE entreprise_id = ${id})`,
+  )));
+  counts.saas_ventes = deletedCount(await tx.execute(sql.raw(
+    `DELETE FROM saas_ventes WHERE client_id IN (SELECT id FROM saas_clients WHERE entreprise_id = ${id}) OR abonnement_id IN (SELECT id FROM abonnements WHERE entreprise_id = ${id})`,
   )));
   // Inscriptions en attente : pas de colonne entreprise ; l'e-mail de
   // l'entreprise est unique (adresse démo ou d'inscription).

@@ -363,8 +363,11 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
   await tx.insert(declarationsFiscales).values({
     entrepriseId, type: 'tva', periode: prevPeriode, montant: '27000.00',
     statut: 'payée', numeroDeclaration: `TVA-${prevPeriode}-${entrepriseId}`,
-    dateDeclaration: isoDate(declarationDate), dateSoumission: isoDate(declarationDate),
-    datePaiement: isoDate(paiementTvaDate), referencePaiement: `PAY-TVA-${prevPeriode}-DEMO-${entrepriseId}`,
+    // dateSoumission / datePaiement sont des TIMESTAMP : il faut des
+    // objets Date (une chaîne 'YYYY-MM-DD' fait échouer drizzle avec
+    // « value.toISOString is not a function » — 500 en production).
+    dateDeclaration: isoDate(declarationDate), dateSoumission: declarationDate,
+    datePaiement: paiementTvaDate, referencePaiement: `PAY-TVA-${prevPeriode}-DEMO-${entrepriseId}`,
     reponseAdministration: JSON.stringify({ success: true, message: 'Déclaration simulée acceptée', administration: 'OTR', pays: 'Togo' }),
     notes: 'Déclaration TVA du mois précédent, déclarée et payée (démo).',
   });

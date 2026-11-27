@@ -110,6 +110,25 @@ test('suppression : l’entreprise 1 est toujours refusée', async () => {
   await assert.rejects(deleteEnterpriseData(fakeTx, 1), /plateforme/);
 });
 
+test('suppression : password_reset_tokens et saas_ventes par sous-requête (pas de colonne entreprise_id en base live)', async () => {
+  const seen = [];
+  const fakeTx = {
+    execute: async (query) => {
+      seen.push(JSON.stringify(query?.queryChunks ?? query));
+      return { rowCount: 0, rows: [] };
+    },
+  };
+  const counts = await deleteEnterpriseData(fakeTx, 42, 'demo-test@demo.comptaorion.com');
+  const sqlText = seen.join('\n');
+  assert.ok(!sqlText.includes('password_reset_tokens WHERE entreprise_id'), 'password_reset_tokens ne doit pas être supprimée par entreprise_id');
+  assert.ok(!sqlText.includes('saas_ventes WHERE entreprise_id'), 'saas_ventes ne doit pas être supprimée par entreprise_id');
+  assert.ok(sqlText.includes('password_reset_tokens WHERE user_id IN'), 'password_reset_tokens doit être supprimée par user_id');
+  assert.ok(sqlText.includes('saas_ventes WHERE client_id IN'), 'saas_ventes doit être supprimée par client_id/abonnement_id');
+  assert.equal(counts.password_reset_tokens, 0);
+  assert.equal(counts.saas_ventes, 0);
+  assert.equal(counts.entreprises, 0);
+});
+
 test('purge dry-run : sélection des candidats sans suppression', async () => {
   const rows = [
     { id: 99, nom: 'Essai vieux', email: 'vieux@example.test', is_demo: false, created_at: daysAgo(61), saas_client_id: 1, statut: 'trial', source: 'web', date_inscription: daysAgo(61), has_paid_subscription: false, has_paid_subscription_invoice: false },

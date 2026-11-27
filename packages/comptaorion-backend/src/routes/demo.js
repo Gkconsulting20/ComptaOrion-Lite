@@ -47,6 +47,9 @@ router.post('/demo', async (req, res) => {
         ? 'Impossible de créer la démonstration. Réessayez.'
         : error.message,
       ...(error?.code ? { code: error.code } : {}),
+      // DIAGNOSTIC TEMPORAIRE (27 nov. 2026) : message réel pour identifier
+      // l'échec du seed en production. À RETIRER avant la livraison finale.
+      diagnostic: String(error?.message || error),
     });
   }
 });
