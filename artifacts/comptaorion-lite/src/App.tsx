@@ -7,6 +7,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 // @ts-expect-error Legacy JSX source has no standalone TypeScript declaration.
 import LiteApp from '@/LiteApp.jsx';
 // @ts-expect-error Legacy JSX source has no standalone TypeScript declaration.
+import { ResetPassword } from '@/pages/ResetPassword.jsx';
+// @ts-expect-error Legacy JSX source has no standalone TypeScript declaration.
 import CommercialPortal from '@/CommercialPortal.jsx';
 import UserGuide from '@/UserGuide.jsx';
 import NotFound from '@/pages/not-found';
@@ -26,6 +28,7 @@ function Router() {
     <RoutedErrorBoundary>
       <Switch>
         <Route path="/guide" component={UserGuide} />
+        <Route path="/reset-password" component={ResetPassword} />
         <Route path="/" component={LiteApp} />
         <Route path="/lite" component={LiteApp} />
         <Route path="/commercial" component={CommercialPortal} />

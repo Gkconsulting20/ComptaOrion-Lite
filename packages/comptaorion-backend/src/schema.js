@@ -1,4 +1,4 @@
-import { pgTable, serial, text, varchar, integer, decimal, boolean, timestamp, date, pgEnum, jsonb, primaryKey, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, varchar, integer, decimal, boolean, timestamp, date, pgEnum, jsonb, primaryKey, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // ==========================================
@@ -89,9 +89,38 @@ export const users = pgTable('users', {
   role: userRoleEnum('role').default('employee'),
   actif: boolean('actif').default(true),
   lastLogin: timestamp('last_login'),
+  // Vérification de l'adresse e-mail (28 nov. 2026, design validé par Cap
+  // le 27 nov.) : NULL tant que l'e-mail n'est pas vérifié ; la connexion
+  // est alors refusée (403 EMAIL_NOT_VERIFIED). Les comptes existants sont
+  // considérés vérifiés (backfill email_verified_at = created_at) et les
+  // comptes ORIONEXA (entreprise 1) ne sont jamais bloqués.
+  emailVerifiedAt: timestamp('email_verified_at'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+// Codes de vérification d'e-mail à 6 chiffres (28 nov. 2026, design validé
+// par Cap le 27 nov.) : code stocké HASHÉ SHA-256 uniquement, un seul code
+// actif par utilisateur. Validité 15 minutes, 5 tentatives max puis code
+// invalidé ; 3 codes invalidés d'affilée → blocage 1 heure pour cet e-mail.
+// Statuts : actif, utilise, expire, invalide (tentatives épuisées),
+// remplace (un nouveau code a été émis).
+export const emailVerificationCodes = pgTable('email_verification_codes', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  email: varchar('email', { length: 255 }).notNull(),
+  codeHash: varchar('code_hash', { length: 64 }).notNull(),
+  statut: varchar('statut', { length: 20 }).notNull().default('actif'),
+  tentatives: integer('tentatives').notNull().default(0),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  invalidatedAt: timestamp('invalidated_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userCreatedIdx: index('email_verification_codes_user_created_idx').on(table.userId, table.createdAt),
+  emailCreatedIdx: index('email_verification_codes_email_created_idx').on(table.email, table.createdAt),
+}));
 
 // ==========================================
 // MODULE 4: CLIENTS & CRM

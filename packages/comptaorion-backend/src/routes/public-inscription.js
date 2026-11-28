@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { createRequire } from 'module';
 import crypto from 'crypto';
 import emailService from '../services/emailService.js';
+import { createVerificationCode } from '../services/emailVerification.js';
 import { calculerOffreAbonnement, commissionSur, montantPayant } from '../saas-offre.js';
 import { tauxTvaParPays } from '../utils/tva.js';
 
@@ -32,119 +33,31 @@ if (FEDAPAY_SECRET_KEY) {
 // ===========================================
 
 /**
- * Envoie un email de bienvenue avec les identifiants de connexion
+ * Envoie l'e-mail de vérification à un client créé via FedaPay (28 nov.
+ * 2026) : le compte est créé mais ne peut pas se connecter tant que
+ * l'e-mail n'est pas vérifié. Le mot de passe temporaire généré n'est
+ * JAMAIS envoyé en clair : l'e-mail contient uniquement le code à
+ * 6 chiffres, et le client définit ensuite son mot de passe via
+ * « Mot de passe oublié ». Si l'envoi échoue (MAKE_WEBHOOK_URL absente),
+ * l'inscription reste créée : le code est en base et reste renvoyable
+ * depuis la page de vérification — on journalise, on ne bloque pas.
  */
-async function envoyerEmailBienvenue(email, nomEntreprise, motDePasse, planId, entrepriseId) {
-  // Récupérer les infos du plan
-  const [plan] = await db.select()
-    .from(plansAbonnement)
-    .where(eq(plansAbonnement.id, planId))
-    .limit(1);
-
-  const nomPlan = plan ? plan.nom : 'Votre plan';
-
-  // URL de l'application (à adapter selon votre domaine)
-  const appUrl = process.env.FRONTEND_URL || process.env.BACKEND_URL?.replace(':3000', ':5000') || 'https://votre-app.com';
-
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
-        .credentials { background: white; padding: 20px; border-left: 4px solid #667eea; margin: 20px 0; border-radius: 4px; }
-        .button { display: inline-block; background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
-        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
-        .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1 style="margin: 0;">💼 Bienvenue sur ComptaOrion !</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">Votre compte a été créé avec succès</p>
-        </div>
-        
-        <div class="content">
-          <h2 style="color: #667eea;">Bonjour ${nomEntreprise} ! 🎉</h2>
-          
-          <p>Félicitations ! Votre inscription à <strong>ComptaOrion</strong> est confirmée.</p>
-          
-          <p>Vous avez souscrit au plan <strong>${nomPlan}</strong> et pouvez dès maintenant accéder à votre espace de gestion.</p>
-          
-          <div class="credentials">
-            <h3 style="margin-top: 0; color: #667eea;">🔐 Vos Identifiants de Connexion</h3>
-            <p><strong>ID Entreprise :</strong> <code style="background: #f0f0f0; padding: 5px 10px; border-radius: 3px; font-size: 16px;">${entrepriseId}</code></p>
-            <p><strong>Email :</strong> ${email}</p>
-            <p><strong>Mot de passe temporaire :</strong> <code style="background: #f0f0f0; padding: 5px 10px; border-radius: 3px; font-size: 16px;">${motDePasse}</code></p>
-          </div>
-          
-          <div class="warning">
-            <p style="margin: 0;"><strong>⚠️ Important :</strong> Pour votre sécurité, veuillez changer ce mot de passe temporaire dès votre première connexion.</p>
-          </div>
-          
-          <div style="text-align: center;">
-            <a href="${appUrl}" class="button">🚀 Accéder à mon compte</a>
-          </div>
-          
-          <h3 style="color: #667eea;">📚 Pour bien démarrer :</h3>
-          <ul>
-            <li>✅ Complétez les paramètres de votre entreprise</li>
-            <li>✅ Configurez votre plan comptable (SYSCOHADA, IFRS, PCG)</li>
-            <li>✅ Ajoutez vos premiers clients et fournisseurs</li>
-            <li>✅ Créez votre première facture</li>
-          </ul>
-          
-          <h3 style="color: #667eea;">💡 Besoin d'aide ?</h3>
-          <p>Notre équipe support est là pour vous accompagner :</p>
-          <ul>
-            <li>📧 Email : support@comptaorion.com</li>
-            <li>📞 Téléphone : +229 XX XX XX XX</li>
-            <li>💬 Chat en direct sur l'application</li>
-          </ul>
-          
-          <div class="footer">
-            <p><strong>ComptaOrion</strong> - L'ERP professionnel pour l'Afrique</p>
-            <p>Cet email a été envoyé automatiquement suite à votre inscription.<br>
-            Si vous n'êtes pas à l'origine de cette demande, veuillez ignorer ce message.</p>
-          </div>
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
-
-  // Envoyer via SendGrid (sans historique car pas de entrepriseId/factureId disponibles ici)
-  const sgMail = (await import('@sendgrid/mail')).default;
-  const apiKey = process.env.SENDGRID_API_KEY;
-  
-  if (!apiKey) {
-    console.warn('⚠️ SendGrid non configuré - Email de bienvenue NON ENVOYÉ');
-    console.warn(`🏢 Entreprise ID: ${entrepriseId}`);
-    console.warn(`⚠️ IMPORTANT: Le client ne recevra PAS ses identifiants par email !`);
-    // SÉCURITÉ: Ne jamais logger le mot de passe en clair
-    // En production, SendGrid DOIT être configuré
-    throw new Error('SENDGRID_API_KEY non configuré - impossible d\'envoyer l\'email de bienvenue');
-  }
-
-  sgMail.setApiKey(apiKey);
-  
-  const msg = {
+async function envoyerEmailBienvenue(email, nomEntreprise, entrepriseId, user) {
+  const { code } = await createVerificationCode(db, { userId: user.id, email });
+  const result = await emailService.sendVerificationCodeEmail({
     to: email,
-    from: {
-      email: process.env.SENDGRID_FROM_EMAIL || 'noreply@comptaorion.com',
-      name: process.env.SENDGRID_FROM_NAME || 'ComptaOrion',
-    },
-    subject: `🎉 Bienvenue sur ComptaOrion - Vos identifiants de connexion`,
-    html,
-  };
-
-  await sgMail.send(msg);
-  console.log('✅ Email de bienvenue envoyé');
+    code,
+    nomEntreprise,
+    entrepriseId,
+    userId: user.id,
+    isFedapay: true,
+  });
+  if (!result.success) {
+    console.error('❌ Code de vérification non envoyé à', email, ':', result.error || result.message);
+    console.error(`⚠️ Le client (ID ${entrepriseId}) n'a PAS reçu son code de vérification : il pourra en demander un nouveau depuis la page de vérification.`);
+    return;
+  }
+  console.log('✅ E-mail de vérification envoyé à', email);
 }
 
 // ===========================================
@@ -655,22 +568,19 @@ router.post('/webhook/fedapay', async (req, res) => {
 
       console.log('✅ Inscription complétée');
 
-      // Envoyer email de bienvenue avec identifiants
+      // Envoyer l'e-mail de vérification (code à 6 chiffres, jamais le mot
+      // de passe en clair). Le client vérifie son adresse, puis définit
+      // son mot de passe via « Mot de passe oublié ».
       try {
         await envoyerEmailBienvenue(
           inscriptionEnAttente.email,
           inscriptionEnAttente.nomEntreprise,
-          motDePasseTemporaire,
-          inscriptionEnAttente.planId,
-          newEntreprise.id // Ajouter l'ID de l'entreprise créée
+          newEntreprise.id,
+          newUser
         );
-        console.log('✅ Email de bienvenue envoyé avec succès');
       } catch (emailError) {
-        console.error('❌ ERREUR CRITIQUE: Impossible d\'envoyer l\'email de bienvenue:', emailError.message);
-        console.error(`⚠️ Le client (ID ${newEntreprise.id}) n'a PAS reçu ses identifiants !`);
-        // IMPORTANT: En production, ceci est un échec critique
-        // L'inscription est créée mais le client ne peut pas se connecter
-        // Action requise: Contactez manuellement le client ou réinitialisez son mot de passe
+        console.error('❌ ERREUR: Impossible d\'envoyer l\'email de vérification:', emailError.message);
+        console.error(`⚠️ Le client (ID ${newEntreprise.id}) pourra demander un nouveau code depuis la page de vérification.`);
       }
 
       res.json({ success: true, message: 'Inscription complétée avec succès' });

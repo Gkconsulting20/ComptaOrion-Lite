@@ -20,10 +20,12 @@
 import { sql } from 'drizzle-orm';
 import { db } from '../db.js';
 import { TRIAL_DURATION_MS } from '../trial-access.js';
+import { UNVERIFIED_PURGE_DAYS } from './emailVerification.js';
 
 export const PLATFORM_OWNER_ENTREPRISE_ID = 1;
 export const PURGE_LIMIT_PER_RUN = 50;
 export const DEMO_RATE_LIMIT_PER_DAY = 5;
+const UNVERIFIED_MOTIF = 'email_non_verifie';
 
 const DEFAULTS = {
   trial_deletion_delay_days: 30,
@@ -291,6 +293,11 @@ export async function deleteEnterpriseData(tx, entrepriseId, entrepriseEmail = n
   counts.password_reset_tokens = deletedCount(await tx.execute(sql.raw(
     `DELETE FROM password_reset_tokens WHERE user_id IN (SELECT id FROM users WHERE entreprise_id = ${id})`,
   )));
+  // email_verification_codes : pas de colonne entreprise_id — clé par
+  // l'utilisateur (user_id). Supprimée AVANT users (plus bas).
+  counts.email_verification_codes = deletedCount(await tx.execute(sql.raw(
+    `DELETE FROM email_verification_codes WHERE user_id IN (SELECT id FROM users WHERE entreprise_id = ${id})`,
+  )));
   counts.saas_ventes = deletedCount(await tx.execute(sql.raw(
     `DELETE FROM saas_ventes WHERE client_id IN (SELECT id FROM saas_clients WHERE entreprise_id = ${id}) OR abonnement_id IN (SELECT id FROM abonnements WHERE entreprise_id = ${id})`,
   )));
@@ -378,7 +385,89 @@ export async function findPurgeCandidates(params, now = new Date(), executor = d
     else if (verdict.orphan) orphelins.push(base);
     else exclus.push(base);
   }
+  // Comptes jamais vérifiés (28 nov. 2026) : une entreprise inscrite dont
+  // AUCUN utilisateur n'a vérifié son e-mail est supprimée après 7 jours
+  // (UNVERIFIED_PURGE_DAYS). Même bascule que le reste de la purge
+  // (trial_purge_enabled) : tant que le flag est faux, le cron 03:00 reste
+  // un dry-run, aucune suppression réelle. Jamais l'entreprise 1, jamais
+  // une démo, jamais une entreprise avec une vente confirmée ou un
+  // abonnement payant. Une entreprise déjà candidate par un autre motif
+  // (essai expiré) n'est pas ajoutée deux fois.
+  const dejaCandidates = new Set(candidats.map((c) => c.entrepriseId));
+  for (const unverified of await listUnverifiedCandidates(executor)) {
+    const verdict = isEligibleForUnverifiedPurge(unverified, { now });
+    if (!verdict.eligible || dejaCandidates.has(unverified.id)) continue;
+    candidats.push({
+      entrepriseId: unverified.id,
+      entrepriseNom: unverified.nom,
+      entrepriseEmail: unverified.email,
+      isDemo: false,
+      createdAt: unverified.dateInscription,
+      saasClient: null,
+      hasPaidSubscription: unverified.hasPaidSubscription,
+      hasPaidSubscriptionInvoice: false,
+      eligible: true,
+      motif: UNVERIFIED_MOTIF,
+      reason: null,
+      orphan: false,
+      dateSuppressionEligible: verdict.eligibleAt?.toISOString() || null,
+    });
+  }
   return { candidats, orphelins, exclus, params: { ...params } };
+}
+
+// ---------------------------------------------------------------------------
+// Comptes jamais vérifiés (28 nov. 2026)
+// ---------------------------------------------------------------------------
+
+export async function listUnverifiedCandidates(executor = db) {
+  const result = await executor.execute(sql`
+    SELECT e.id AS id, e.nom AS nom, e.email AS email,
+      e.created_at AS "dateInscription", e.is_demo AS "isDemo",
+      EXISTS (
+        SELECT 1 FROM users u
+        WHERE u.entreprise_id = e.id AND u.email_verified_at IS NOT NULL
+      ) AS "hasVerifiedUser",
+      EXISTS (
+        SELECT 1 FROM saas_ventes v
+        JOIN saas_clients sc ON sc.id = v.client_id
+        WHERE sc.entreprise_id = e.id AND v.statut = 'confirmée'
+      ) AS "hasConfirmedSale",
+      EXISTS (
+        SELECT 1 FROM abonnements a
+        JOIN plans_abonnement p ON p.id = a.plan_id
+        WHERE a.entreprise_id = e.id AND p.prix > 0
+      ) AS "hasPaidSubscription"
+    FROM entreprises e
+    WHERE e.id <> 1
+      AND e.is_demo = false
+    ORDER BY e.created_at ASC
+  `);
+  const rows = result.rows || result || [];
+  return rows.map((row) => ({
+    ...row,
+    id: Number(row.id),
+    isDemo: row.isDemo === true,
+    hasVerifiedUser: row.hasVerifiedUser === true,
+    hasConfirmedSale: row.hasConfirmedSale === true,
+    hasPaidSubscription: row.hasPaidSubscription === true,
+  }));
+}
+
+export function isEligibleForUnverifiedPurge(candidate, { delayDays = UNVERIFIED_PURGE_DAYS, now = new Date() } = {}) {
+  if (!candidate || !Number.isSafeInteger(Number(candidate.id))) {
+    return { eligible: false, reason: 'candidat-manquant' };
+  }
+  if (Number(candidate.id) === 1) return { eligible: false, reason: 'entreprise-1-protegee' };
+  if (candidate.isDemo) return { eligible: false, reason: 'demo' };
+  if (candidate.hasVerifiedUser) return { eligible: false, reason: 'email-verifie' };
+  if (candidate.hasConfirmedSale) return { eligible: false, reason: 'vente-confirmee' };
+  if (candidate.hasPaidSubscription) return { eligible: false, reason: 'abonnement-payant' };
+  const inscription = new Date(candidate.dateInscription);
+  if (!Number.isFinite(inscription.getTime())) return { eligible: false, reason: 'inscription-inconnue' };
+  const eligibleAt = new Date(inscription.getTime() + Number(delayDays) * 24 * 60 * 60 * 1000);
+  if (now < eligibleAt) return { eligible: false, reason: 'delai-non-atteint', eligibleAt };
+  return { eligible: true, reason: 'eligible', eligibleAt, dateInscription: inscription };
 }
 
 // ---------------------------------------------------------------------------
@@ -428,23 +517,38 @@ export async function purgeExpiredTrials({ dryRun = true, ids = null, supprimePa
             EXISTS (SELECT 1 FROM factures_abonnement fa
               WHERE fa.entreprise_id = ${candidat.entrepriseId} AND fa.statut = 'payee') AS has_paid_subscription_invoice
         `).then((r) => r?.rows || r || []);
-        const recheck = classifyPurgeCandidate({
-          entrepriseId: Number(entreprise.id),
-          isDemo: entreprise.is_demo === true,
-          createdAt: entreprise.created_at,
-          saasClient: saasClient ? { statut: saasClient.statut, source: saasClient.source, dateInscription: saasClient.date_inscription } : null,
-          hasPaidSubscription: paid?.has_paid_subscription === true,
-          hasPaidSubscriptionInvoice: paid?.has_paid_subscription_invoice === true,
-        }, params, now);
+        let recheck;
+        if (candidat.motif === UNVERIFIED_MOTIF) {
+          // Comptes jamais vérifiés : re-vérification dédiée (la
+          // classification essais/démos ne connaît pas ce motif).
+          const fresh = (await listUnverifiedCandidates(tx)).find((c) => c.id === candidat.entrepriseId);
+          const verdict = isEligibleForUnverifiedPurge(fresh, { now });
+          recheck = { eligible: verdict.eligible, motif: UNVERIFIED_MOTIF, reason: verdict.reason };
+        } else {
+          recheck = classifyPurgeCandidate({
+            entrepriseId: Number(entreprise.id),
+            isDemo: entreprise.is_demo === true,
+            createdAt: entreprise.created_at,
+            saasClient: saasClient ? { statut: saasClient.statut, source: saasClient.source, dateInscription: saasClient.date_inscription } : null,
+            hasPaidSubscription: paid?.has_paid_subscription === true,
+            hasPaidSubscriptionInvoice: paid?.has_paid_subscription_invoice === true,
+          }, params, now);
+        }
         if (!recheck.eligible || recheck.motif !== candidat.motif) {
           return { skipped: recheck.reason || 'plus_eligible' };
         }
         const details = await countEnterpriseContent(tx, candidat.entrepriseId);
         const dates = candidat.motif === 'essai_expire_non_converti' && saasClient?.dateInscription
           ? trialDatesFor(saasClient.dateInscription, params.trial_deletion_delay_days)
-          : { dateFinEssai: null, dateSuppressionEligible: null };
+          : candidat.motif === UNVERIFIED_MOTIF && entreprise.created_at
+            ? {
+              dateFinEssai: null,
+              dateSuppressionEligible: new Date(new Date(entreprise.created_at).getTime() + UNVERIFIED_PURGE_DAYS * 24 * 60 * 60 * 1000),
+            }
+            : { dateFinEssai: null, dateSuppressionEligible: null };
         const delayApplique = candidat.motif === 'demo_expiree'
-          ? params.demo_retention_days : params.trial_deletion_delay_days;
+          ? params.demo_retention_days
+          : candidat.motif === UNVERIFIED_MOTIF ? UNVERIFIED_PURGE_DAYS : params.trial_deletion_delay_days;
         await tx.execute(sql`
           INSERT INTO suppressions_entreprises
             (application, entreprise_id, entreprise_nom, entreprise_email, motif,

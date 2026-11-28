@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import api from '../api.js';
 
@@ -29,6 +29,22 @@ export function Login({ onLoginSuccess, initialMessage = '', initialMode = 'logi
   const [error, setError] = useState(initialMessage);
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  // Vérification e-mail par code à 6 chiffres (28 nov. 2026) : après
+  // l'inscription, et quand la connexion est refusée avec
+  // EMAIL_NOT_VERIFIED. Code valable 15 minutes ; renvoi après 60 s
+  // (3 renvois max par heure) ; l'adresse peut être corrigée avant un renvoi.
+  const [verifyEmail, setVerifyEmail] = useState('');
+  const [verifyCode, setVerifyCode] = useState('');
+  const [nouvelEmail, setNouvelEmail] = useState('');
+  const [showCorrection, setShowCorrection] = useState(false);
+  const [retryAfter, setRetryAfter] = useState(0);
+  const [resending, setResending] = useState(false);
+
+  useEffect(() => {
+    if (retryAfter <= 0) return undefined;
+    const timer = setTimeout(() => setRetryAfter((value) => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [retryAfter]);
 
   const changeMode = (next) => {
     setMode(next);
@@ -50,9 +66,69 @@ export function Login({ onLoginSuccess, initialMessage = '', initialMode = 'logi
       if (data.session?.id) localStorage.setItem('sessionId', data.session.id);
       onLoginSuccess(data.user);
     } catch (requestError) {
+      // Compte non vérifié : basculer vers la saisie du code plutôt
+      // qu'afficher une simple erreur.
+      if (requestError.data?.code === 'EMAIL_NOT_VERIFIED') {
+        setVerifyEmail(formData.email);
+        setVerifyCode('');
+        setError('');
+        setSuccess('Votre adresse e-mail n’est pas encore vérifiée. Saisissez le code à 6 chiffres reçu par e-mail.');
+        setMode('verify');
+        return;
+      }
       setError(requestError.message || 'Erreur de connexion');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleVerify = async (event) => {
+    event.preventDefault();
+    setError('');
+    setSuccess('');
+    if (!/^\d{6}$/.test(verifyCode.trim())) {
+      setError('Saisissez le code à 6 chiffres reçu par e-mail.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await api.post('/auth/verifier-email', { email: verifyEmail.trim().toLowerCase(), code: verifyCode.trim() });
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('refreshToken', data.refreshToken);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      localStorage.setItem('entrepriseId', data.user.entrepriseId);
+      if (data.entreprise) localStorage.setItem('entreprise', JSON.stringify(data.entreprise));
+      onLoginSuccess(data.user);
+    } catch (requestError) {
+      setError(requestError.message || 'Vérification impossible.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async (event) => {
+    event.preventDefault();
+    setError('');
+    setSuccess('');
+    setResending(true);
+    try {
+      const data = await api.post('/auth/renvoyer-code', {
+        email: verifyEmail.trim().toLowerCase(),
+        ...(nouvelEmail.trim() ? { nouvelEmail: nouvelEmail.trim().toLowerCase() } : {}),
+      });
+      if (data?.retryAfterSeconds) setRetryAfter(data.retryAfterSeconds);
+      else setRetryAfter(60);
+      if (nouvelEmail.trim()) {
+        setVerifyEmail(nouvelEmail.trim().toLowerCase());
+        setNouvelEmail('');
+        setShowCorrection(false);
+      }
+      setSuccess(data?.message || 'Un nouveau code a été envoyé.');
+    } catch (requestError) {
+      if (requestError.data?.retryAfterSeconds) setRetryAfter(requestError.data.retryAfterSeconds);
+      setError(requestError.message || 'Renvoi impossible.');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -82,9 +158,13 @@ export function Login({ onLoginSuccess, initialMessage = '', initialMode = 'logi
     }
     setLoading(true);
     try {
-      await api.post('/auth/register', { ...registerData, tauxTva });
-      setSuccess('Compte créé avec succès ! Vous pouvez maintenant vous connecter.');
-      setMode('login');
+      const data = await api.post('/auth/register', { ...registerData, tauxTva });
+      // Inscription créée mais non vérifiée : aucun jeton n'est retourné.
+      // Le compte s'active avec le code à 6 chiffres envoyé par e-mail.
+      setVerifyEmail(registerData.email);
+      setVerifyCode('');
+      setSuccess(data?.message || 'Compte créé. Un code de vérification à 6 chiffres vient d’être envoyé à votre adresse e-mail.');
+      setMode('verify');
       setFormData((current) => ({ ...current, email: registerData.email }));
     } catch (requestError) {
       setError(requestError.message || "Erreur lors de l'inscription");
@@ -224,6 +304,33 @@ export function Login({ onLoginSuccess, initialMessage = '', initialMode = 'logi
               </div>
               <button className="auth-submit" type="submit" disabled={loading}>{loading ? 'Création…' : 'Créer mon compte'}<span aria-hidden="true">→</span></button>
               <div className="auth-switch">Déjà inscrit ? <button type="button" onClick={() => changeMode('login')}>Retour à la connexion</button></div>
+            </form>
+          )}
+
+          {mode === 'verify' && (
+            <form className="auth-form" onSubmit={handleVerify}>
+              <div className="auth-heading">
+                <span className="auth-kicker">Dernière étape</span>
+                <h2>Vérifiez votre e-mail</h2>
+                <p>Un code à 6 chiffres a été envoyé à <strong>{verifyEmail}</strong>. Il est valable 15 minutes : votre essai gratuit de 30 jours démarrera une fois l’adresse vérifiée.</p>
+              </div>
+              <Messages error={error} success={success} />
+              <label>Code de vérification
+                <input type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="123456" value={verifyCode} onChange={(event) => setVerifyCode(event.target.value.replace(/\D/g, '').slice(0, 6))} required />
+              </label>
+              <button className="auth-submit" type="submit" disabled={loading}>{loading ? 'Vérification…' : 'Vérifier mon adresse'}<span aria-hidden="true">→</span></button>
+              <button className="auth-quiet-link" type="button" disabled={resending || retryAfter > 0} onClick={handleResend}>
+                {resending ? 'Envoi…' : retryAfter > 0 ? `Renvoyer le code (${retryAfter} s)` : 'Renvoyer le code'}
+              </button>
+              <button className="auth-quiet-link" type="button" onClick={() => setShowCorrection((value) => !value)}>
+                {showCorrection ? 'Annuler la correction' : 'Corriger mon adresse e-mail'}
+              </button>
+              {showCorrection && (
+                <label>Nouvelle adresse e-mail
+                  <input type="email" autoComplete="email" value={nouvelEmail} onChange={(event) => setNouvelEmail(event.target.value)} placeholder="nouvelle-adresse@exemple.com" />
+                </label>
+              )}
+              <div className="auth-switch">Adresse déjà vérifiée ? <button type="button" onClick={() => changeMode('login')}>Retour à la connexion</button></div>
             </form>
           )}
 

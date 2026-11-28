@@ -17,10 +17,9 @@ const router = express.Router();
 // (inscription, inscription publique, démo) : il n'existait aucun
 // point d'ajout à une entreprise existante, donc la limite
 // d'utilisateurs du forfait ne pouvait jamais se déclencher.
-// Ce routeur comble ce manque, sans e-mail (aucune clé SendGrid
-// aujourd'hui) : le propriétaire (rôle admin de l'entreprise) crée
-// directement le compte du nouvel utilisateur — nom d'utilisateur,
-// e-mail et mot de passe (≥ 12 caractères, même règle que
+// Ce routeur comble ce manque, sans e-mail : le propriétaire (rôle admin
+// de l'entreprise) crée directement le compte du nouvel utilisateur — nom
+// d'utilisateur, e-mail et mot de passe (≥ 12 caractères, même règle que
 // l'inscription) — et lui transmet les identifiants par le canal de
 // son choix. Le nouvel utilisateur se connecte ensuite normalement
 // sur la page de connexion. Le rattachement à l'annuaire des
@@ -148,6 +147,11 @@ router.post('/', async (req, res) => {
     }
 
     const passwordHash = await hashPassword(password);
+    // Vérification e-mail (28 nov. 2026) : le compte est créé par le
+    // propriétaire, qui transmet lui-même les identifiants au nouvel
+    // utilisateur — l'adresse est donc considérée vérifiée dès la
+    // création (la vérification par code ne vise que l'inscription
+    // libre-service, où personne ne se porte garant de l'adresse).
     const [cree] = await db.insert(users)
       .values({
         entrepriseId: Number(req.entrepriseId),
@@ -158,6 +162,7 @@ router.post('/', async (req, res) => {
         prenom,
         role,
         actif: true,
+        emailVerifiedAt: new Date(),
       })
       .returning();
     res.status(201).json({ message: 'Utilisateur créé.', user: publicUser(cree) });

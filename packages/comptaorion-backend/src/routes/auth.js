@@ -11,10 +11,52 @@ import {
   verifyToken,
 } from '../auth.js';
 import { initializeSyscohadaForEnterprise } from '../services/syscohadaService.js';
-import { evaluateSaasAccess, getSaasAccess } from '../trial-access.js';
+import { getSaasAccess } from '../trial-access.js';
 import { normaliserTauxTva, TAUX_TVA_DEFAUT } from '../utils/tva.js';
+import emailService from '../services/emailService.js';
+import {
+  checkResendAllowed,
+  correctUnverifiedEmail,
+  createVerificationCode,
+  findUserByEmail,
+  getBlockedUntilForEmail,
+  getResendState,
+  isEmailVerificationRequired,
+  markEmailVerifiedAndStartTrial,
+  verifyEmailCode,
+} from '../services/emailVerification.js';
 
 const router = express.Router();
+
+// Crée un code à 6 chiffres pour l'utilisateur et l'envoie par e-mail
+// (webhook Make). Le code n'est jamais journalisé en clair. Si l'envoi
+// échoue (MAKE_WEBHOOK_URL absente, par exemple), l'inscription aboutit
+// quand même : le code reste renvoyable quand le secret est remis.
+// Retourne { envoye, erreur }.
+async function envoyerCodeVerification({ user, email, nomEntreprise, entrepriseId, isFedapay = false }) {
+  try {
+    const { code } = await createVerificationCode(db, { userId: user.id, email });
+    const result = await emailService.sendVerificationCodeEmail({
+      to: email,
+      code,
+      nomEntreprise,
+      entrepriseId,
+      userId: user.id,
+      isFedapay,
+    });
+    if (!result.success) {
+      console.error('❌ Code de vérification non envoyé à', email, ':', result.error || result.message);
+      return { envoye: false, erreur: result.error || result.message };
+    }
+    return { envoye: true, erreur: null };
+  } catch (error) {
+    console.error('❌ Erreur création/envoi du code de vérification :', error?.message);
+    return { envoye: false, erreur: error?.message };
+  }
+}
+
+// Message générique : ne révèle jamais si l'e-mail existe.
+const CODE_INVALIDE_MESSAGE = 'Code invalide ou expiré.';
 
 /**
  * POST /auth/register
@@ -128,8 +170,6 @@ router.post('/register', async (req, res) => {
       }).returning();
       return { newEntreprise: createdEntreprise, newUser: createdUser, newSaasClient: createdSaasClient };
     });
-    const trialAccess = evaluateSaasAccess(newSaasClient);
-
     // Initialiser automatiquement le plan comptable SYSCOHADA
     try {
       const syscohadaResult = await initializeSyscohadaForEnterprise(newEntreprise.id);
@@ -138,12 +178,27 @@ router.post('/register', async (req, res) => {
       console.error('Erreur initialisation SYSCOHADA:', syscohadaError.message);
     }
 
-    // Générer les tokens
-    const token = generateToken(newUser);
-    const refreshToken = generateRefreshToken(newUser);
+    // Vérification de l'e-mail (28 nov. 2026) : le compte est créé mais ne
+    // peut pas se connecter tant que l'adresse n'est pas vérifiée. L'essai
+    // de 30 jours ne démarre qu'à la vérification (la date d'inscription
+    // SaaS est alors réinitialisée). L'envoi du code ne fait jamais
+    // échouer l'inscription : sans MAKE_WEBHOOK_URL, le code est créé en
+    // base et reste renvoyable quand le secret est remis. Aucun jeton
+    // n'est retourné avant la vérification.
+    const codeEnvoi = await envoyerCodeVerification({
+      user: newUser,
+      email: normalizedEmail,
+      nomEntreprise: newEntreprise.nom,
+      entrepriseId: newEntreprise.id,
+    });
 
     res.status(201).json({
-      message: 'Inscription réussie',
+      message: codeEnvoi.envoye
+        ? 'Votre espace est créé. Un code de vérification à 6 chiffres vient d’être envoyé à ' + normalizedEmail + ' (valable 15 minutes). Saisissez-le pour activer votre compte : votre essai gratuit de 30 jours démarrera alors.'
+        : 'Votre espace est créé, mais l’e-mail de vérification n’a pas pu être envoyé pour le moment. Demandez un nouveau code depuis la page de vérification.',
+      emailVerificationRequired: true,
+      emailSent: codeEnvoi.envoye,
+      email: normalizedEmail,
       user: {
         id: newUser.id,
         username: newUser.username,
@@ -152,11 +207,9 @@ router.post('/register', async (req, res) => {
         prenom: newUser.prenom,
         role: newUser.role,
         entrepriseId: newUser.entrepriseId,
-        trialEndsAt: trialAccess.trialEndsAt,
+        trialEndsAt: null,
       },
       entreprise: newEntreprise,
-      token,
-      refreshToken,
     });
   } catch (error) {
     console.error('Erreur lors de l\'inscription:', error);
@@ -199,6 +252,18 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
     }
     if (!user.actif) return res.status(403).json({ error: 'Compte désactivé', code: 'ACCOUNT_INACTIVE' });
+    // Vérification e-mail (28 nov. 2026) : après validation du mot de passe,
+    // un compte non vérifié ne peut pas se connecter. Comptes ORIONEXA
+    // (entreprise 1) jamais bloqués, démos exclues par construction.
+    const [userEntreprise] = await db.select({ isDemo: entreprises.isDemo })
+      .from(entreprises).where(eq(entreprises.id, user.entrepriseId)).limit(1);
+    if (isEmailVerificationRequired(user, { isDemoEntreprise: userEntreprise?.isDemo === true })) {
+      return res.status(403).json({
+        error: 'Vérifiez votre adresse e-mail avant de vous connecter. Un code à 6 chiffres vous a été envoyé.',
+        code: 'EMAIL_NOT_VERIFIED',
+        emailVerificationRequired: true,
+      });
+    }
     const saasAccess = await getSaasAccess(user.entrepriseId, user);
     if (!saasAccess.allowed) {
       return res.status(403).json({
@@ -246,6 +311,147 @@ router.post('/login', async (req, res) => {
   } catch (error) {
     console.error('Erreur lors de la connexion:', error);
     res.status(500).json({ error: 'Erreur serveur lors de la connexion' });
+  }
+});
+
+/**
+ * POST /auth/verifier-email
+ * Vérifier l'adresse e-mail avec le code à 6 chiffres reçu. Réponses
+ * génériques : ne révèle jamais si l'e-mail existe. En cas de succès,
+ * l'essai de 30 jours démarre à cet instant et les jetons JWT sont
+ * retournés (l'inscription n'en retourne plus avant vérification).
+ */
+router.post('/verifier-email', async (req, res) => {
+  try {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !code) {
+      return res.status(400).json({ error: CODE_INVALIDE_MESSAGE });
+    }
+
+    const user = await findUserByEmail(db, email);
+    if (!user) return res.status(400).json({ error: CODE_INVALIDE_MESSAGE });
+
+    if (user.emailVerifiedAt) {
+      return res.json({
+        success: true,
+        message: 'Votre adresse e-mail est déjà vérifiée. Vous pouvez vous connecter.',
+      });
+    }
+
+    const result = await verifyEmailCode(db, { user, code });
+    if (!result.ok) {
+      if (result.reason === 'bloque') {
+        return res.status(429).json({
+          error: 'Trop de tentatives. Réessayez plus tard.',
+          code: 'EMAIL_BLOQUE',
+        });
+      }
+      return res.status(400).json({ error: CODE_INVALIDE_MESSAGE });
+    }
+
+    const { trialExpiresAt } = await markEmailVerifiedAndStartTrial(db, { user });
+    const [entreprise] = await db.select()
+      .from(entreprises).where(eq(entreprises.id, user.entrepriseId)).limit(1);
+    await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
+    const token = generateToken(user);
+    const refreshToken = generateRefreshToken(user);
+    return res.json({
+      success: true,
+      message: 'Adresse e-mail vérifiée. Votre essai gratuit de 30 jours démarre aujourd’hui.',
+      trialEndsAt: trialExpiresAt ? trialExpiresAt.toISOString() : null,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        nom: user.nom,
+        prenom: user.prenom,
+        role: user.role,
+        entrepriseId: user.entrepriseId,
+        trialEndsAt: trialExpiresAt ? trialExpiresAt.toISOString() : null,
+        isDemo: entreprise?.isDemo ?? false,
+      },
+      entreprise,
+      token,
+      refreshToken,
+    });
+  } catch (error) {
+    console.error('Erreur vérification e-mail:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /auth/renvoyer-code
+ * Renvoyer un code de vérification. Corps : { email, nouvelEmail? } —
+ * nouvelEmail permet de corriger l'adresse avant le renvoi. Réponse
+ * générique (200) quand l'e-mail est inconnu ou déjà vérifié. Limites :
+ * 60 s minimum entre deux envois, 3 renvois max par heure et par e-mail,
+ * blocage 1 h après 3 codes invalidés d'affilée. Sans MAKE_WEBHOOK_URL :
+ * 503 explicite, le code reste renvoyable quand le secret est remis.
+ */
+router.post('/renvoyer-code', async (req, res) => {
+  try {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const nouvelEmail = typeof req.body?.nouvelEmail === 'string' ? req.body.nouvelEmail.trim().toLowerCase() : '';
+    if (!/^[^\s@]+@[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Adresse e-mail invalide.' });
+    }
+    const genericOk = () =>
+      res.json({ success: true, message: 'Si cette adresse est associée à un compte non vérifié, un nouveau code a été envoyé.' });
+
+    const user = await findUserByEmail(db, email);
+    if (!user || user.emailVerifiedAt) return genericOk();
+
+    let targetEmail = email;
+    if (nouvelEmail && nouvelEmail !== email) {
+      const correction = await correctUnverifiedEmail(db, { user, newEmail: nouvelEmail });
+      if (!correction.ok) {
+        return res.status(400).json({ error: 'Cette nouvelle adresse est invalide ou déjà utilisée.' });
+      }
+      targetEmail = correction.email;
+    }
+
+    const blockedUntil = await getBlockedUntilForEmail(db, targetEmail);
+    if (blockedUntil) {
+      return res.status(429).json({
+        error: 'Trop de tentatives. Réessayez plus tard.',
+        code: 'EMAIL_BLOQUE',
+        retryAfterSeconds: Math.ceil((blockedUntil.getTime() - Date.now()) / 1000),
+      });
+    }
+
+    const resendState = await getResendState(db, targetEmail);
+    const allowed = checkResendAllowed({ ...resendState, now: new Date() });
+    if (!allowed.allowed) {
+      return res.status(429).json({
+        error: allowed.reason === 'limite-horaire'
+          ? 'Limite de renvois atteinte pour cette adresse. Réessayez plus tard.'
+          : 'Veuillez patienter avant de demander un nouveau code.',
+        code: 'RENVOI_TROP_TOT',
+        retryAfterSeconds: allowed.retryAfterSeconds,
+      });
+    }
+
+    const [entreprise] = await db.select({ nom: entreprises.nom })
+      .from(entreprises).where(eq(entreprises.id, user.entrepriseId)).limit(1);
+    const envoi = await envoyerCodeVerification({
+      user: { ...user, email: targetEmail },
+      email: targetEmail,
+      nomEntreprise: entreprise?.nom || '',
+      entrepriseId: user.entrepriseId,
+    });
+    if (!envoi.envoye) {
+      return res.status(503).json({
+        error: 'L’envoi d’e-mail est momentanément indisponible. Réessayez dans quelques minutes : un nouveau code vous sera alors envoyé.',
+        code: 'EMAIL_ENVOI_IMPOSSIBLE',
+        emailSent: false,
+      });
+    }
+    return genericOk();
+  } catch (error) {
+    console.error('Erreur renvoi de code:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

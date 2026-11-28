@@ -61,7 +61,7 @@ export default function UserGuide() {
         <p>ComptaOrion Lite est conçu pour les prestataires de services — professions libérales, consultants, artisans de service, etc. — et non pour les activités d’achat-revente de marchandises. Il n’y a donc ni stock ni achats de marchandises dans Lite : ce n’est pas une limitation, c’est le positionnement du logiciel.</p>
         <div className="guide-callout">
           <strong>Essai gratuit de 30 jours, puis 2 mois offerts</strong>
-          <span>Si vous vous abonnez après l’essai, les 2 premiers mois de l’abonnement sont offerts : la facturation commence au 3e mois.</span>
+          <span>L’essai de 30 jours démarre le jour où vous vérifiez votre adresse e-mail. Si vous vous abonnez après l’essai, les 2 premiers mois de l’abonnement sont offerts : la facturation commence au 3e mois.</span>
           <a href="#forfaits">Voir les forfaits : Services 2 500 FCFA/mois · Équipe 10 000 FCFA/mois</a>
         </div>
       </section>
@@ -70,7 +70,7 @@ export default function UserGuide() {
         <section className="guide-section" id="forfaits">
           <div>
             <h2>Nos forfaits</h2>
-            <p>Deux forfaits mensuels, en FCFA. Essai gratuit de 30 jours, puis 2 mois offerts sur l’abonnement : la facturation commence au 3e mois.</p>
+            <p>Deux forfaits mensuels, en FCFA. Essai gratuit de 30 jours à partir de la vérification de votre adresse e-mail, puis 2 mois offerts sur l’abonnement : la facturation commence au 3e mois.</p>
             <div className="guide-plans">
               {plans.map((plan) => (
                 <article className="guide-plan" key={plan.nom}>
@@ -99,6 +99,14 @@ export default function UserGuide() {
               <Link className="guide-back guide-back-primary" href="/">Ouvrir ComptaOrion Lite</Link>
               <button className="guide-print guide-print-secondary" type="button" onClick={() => window.print()}>Imprimer ce guide</button>
             </div>
+          </div>
+        </section>
+
+        <section className="guide-section" id="verification-email">
+          <div>
+            <h2>Vérification de votre adresse e-mail</h2>
+            <p>À l’inscription, un code à 6 chiffres est envoyé à votre adresse e-mail. Vous devez le saisir pour activer votre compte : tant que l’adresse n’est pas vérifiée, la connexion est refusée. Le code est valable 15 minutes ; après 5 tentatives incorrectes, il est invalidé et un nouveau code doit être demandé. Un nouveau code peut être renvoyé après 60 secondes (3 renvois maximum par heure). Si vous vous êtes trompé d’adresse, vous pouvez la corriger avant de demander un nouveau code.</p>
+            <p>Votre essai gratuit de 30 jours démarre le jour où vous vérifiez votre adresse e-mail, pas le jour de l’inscription. Un compte dont l’adresse n’est jamais vérifiée est supprimé après 7 jours. Les comptes créés par le propriétaire d’une entreprise pour ses collaborateurs, et les entreprises de démonstration, ne sont pas concernés par cette vérification.</p>
           </div>
         </section>
       </div>

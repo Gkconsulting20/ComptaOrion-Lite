@@ -3,8 +3,10 @@ import { db } from '../db.js';
 import crypto from 'crypto';
 import { users, sessions, auditConnexions, passwordResetTokens, permissions, entreprises } from '../schema.js';
 import { generateToken, generateRefreshToken, verifyRefreshToken, hashPassword, comparePassword, authMiddleware } from '../auth.js';
-import { eq, and, gt, isNull } from 'drizzle-orm';
+import { eq, and, gt, isNull, sql } from 'drizzle-orm';
 import { getSaasAccess, trialAccessMiddleware } from '../trial-access.js';
+import emailService from '../services/emailService.js';
+import { isEmailVerificationRequired } from '../services/emailVerification.js';
 
 const router = express.Router();
 
@@ -48,6 +50,21 @@ router.post('/login', async (req, res) => {
     }
     if (!user.actif) {
       return res.status(403).json({ error: 'Compte désactivé', code: 'ACCOUNT_INACTIVE' });
+    }
+    // Vérification e-mail (28 nov. 2026) : après validation du mot de passe,
+    // un compte non vérifié ne peut pas se connecter. Comptes ORIONEXA
+    // (entreprise 1) jamais bloqués, démos exclues par construction.
+    const [entrepriseVerification] = await db
+      .select({ isDemo: entreprises.isDemo })
+      .from(entreprises)
+      .where(eq(entreprises.id, user.entrepriseId))
+      .limit(1);
+    if (isEmailVerificationRequired(user, { isDemoEntreprise: entrepriseVerification?.isDemo === true })) {
+      return res.status(403).json({
+        error: 'Vérifiez votre adresse e-mail avant de vous connecter. Un code à 6 chiffres vous a été envoyé.',
+        code: 'EMAIL_NOT_VERIFIED',
+        emailVerificationRequired: true,
+      });
     }
     const saasAccess = await getSaasAccess(user.entrepriseId, user);
     if (!saasAccess.allowed) {
@@ -236,13 +253,16 @@ router.post('/refresh', async (req, res) => {
 
 router.post('/forgot-password', async (req, res) => {
   try {
-    const { email, entrepriseId } = req.body;
+    // Le formulaire n'envoie que l'e-mail (pas d'entrepriseId) : la
+    // recherche se fait sur l'e-mail seul, insensible à la casse. La
+    // réponse reste générique quand l'e-mail est inconnu.
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(200).json({ message: 'Si l\'email existe, un lien de réinitialisation a été envoyé' });
+    }
 
     const user = await db.query.users.findFirst({
-      where: and(
-        eq(users.email, email),
-        eq(users.entrepriseId, parseInt(entrepriseId))
-      )
+      where: sql`LOWER(${users.email}) = ${email}`,
     });
 
     if (!user) {
@@ -251,7 +271,7 @@ router.post('/forgot-password', async (req, res) => {
 
     // Démo : l'adresse démo n'existe pas, aucun e-mail ne doit partir.
     const [entrepriseDemo] = await db
-      .select({ isDemo: entreprises.isDemo })
+      .select({ isDemo: entreprises.isDemo, nom: entreprises.nom })
       .from(entreprises)
       .where(eq(entreprises.id, user.entrepriseId))
       .limit(1);
@@ -268,9 +288,21 @@ router.post('/forgot-password', async (req, res) => {
       expiresAt
     });
 
-    // TODO: Envoyer email avec lien de réinitialisation
-    // const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5000'}/reset-password?token=${resetToken}`;
-    // await sendEmail(user.email, 'Réinitialisation de mot de passe', resetLink);
+    // Envoi réel par le webhook Make (28 nov. 2026) : le TODO est corrigé.
+    // L'échec d'envoi ne révèle rien à l'appelant (réponse générique) ;
+    // il est journalisé côté serveur.
+    const appUrl = process.env.FRONTEND_URL || 'https://lite.comptaorion.com';
+    const resetLink = `${appUrl}/reset-password?token=${resetToken}`;
+    const envoi = await emailService.sendPasswordResetEmail({
+      to: user.email,
+      resetLink,
+      nomEntreprise: entrepriseDemo?.nom || '',
+      entrepriseId: user.entrepriseId,
+      userId: user.id,
+    });
+    if (!envoi.success) {
+      console.error('❌ E-mail de réinitialisation non envoyé à', user.email, ':', envoi.error || envoi.message);
+    }
 
     res.json({
       message: 'Si l\'email existe, un lien de réinitialisation a été envoyé à votre adresse'
