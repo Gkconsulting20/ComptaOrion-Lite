@@ -867,8 +867,15 @@
   display: grid;
   width: min(100%, 980px);
   min-height: 630px;
+  /* Le panneau défile en interne quand la fenêtre est trop courte :
+     .auth-shell a overflow:hidden (décor), donc sans ce défilement le
+     bas du formulaire — dont le bouton « Essayer la démo », juste sous
+     « Se connecter » — était coupé et inatteignable sur les petits
+     écrans / fenêtres courtes. Sur un écran haut, rien ne change. */
+  max-height: calc(100dvh - 64px);
   grid-template-columns: 0.86fr 1.14fr;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid rgb(23 35 38 / 8%);
   border-radius: 22px;
   background: var(--lite-card);
@@ -1193,6 +1200,7 @@
   .auth-panel-register {
     width: 100%;
     min-height: 100dvh;
+    max-height: 100dvh;
     border: 0;
     border-radius: 0;
     box-shadow: none;

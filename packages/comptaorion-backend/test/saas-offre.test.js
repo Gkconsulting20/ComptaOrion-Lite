@@ -153,6 +153,25 @@ test('création admin : durée de 2 mois, vente à 0 FCFA', async () => {
   assert.equal(venteInseree.values.commission, 0);
 });
 
+test('création admin : un plan brouillon (actif=false) est refusé ; actif, il est accepté', async () => {
+  const dbBrouillon = stubDb({ client: clientBase, plan: { ...planBase, actif: false }, commercial: commercialBase });
+  await assert.rejects(
+    creerAbonnementPayant(dbBrouillon, { entrepriseId: 42, planId: 5, dateDebut: '2026-11-20', dureeEnMois: 12 }),
+    /n’est plus actif/,
+  );
+  assert.equal(dbBrouillon.inserts.length, 0);
+  // Le même plan une fois activé (PATCH /api/saas-admin/plans/:id
+  // { actif: true }) ne bloque plus la création.
+  const dbActif = stubDb({ client: clientBase, plan: { ...planBase, actif: true }, commercial: commercialBase });
+  const { abonnement } = await creerAbonnementPayant(dbActif, {
+    entrepriseId: 42,
+    planId: 5,
+    dateDebut: '2026-11-20',
+    dureeEnMois: 12,
+  });
+  assert.equal(abonnement.statut, 'actif');
+});
+
 test('création admin : sans commercial assigné, la création est refusée', async () => {
   const db = stubDb({
     client: { ...clientBase, commercialId: null },

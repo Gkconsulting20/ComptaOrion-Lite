@@ -205,7 +205,11 @@
 
 .guide-section {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
+  /* Une seule colonne : les sections du guide n'ont pas de pastille
+     .guide-number — l'ancienne grille « 46px minmax(0,1fr) » plaçait
+     l'unique <div> de contenu dans la colonne de 46 px et écrasait
+     tout le texte (dont « Nos forfaits ») dans ~100 px. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   scroll-margin-top: 88px;
   border: 1px solid #e5ddd0;
@@ -343,7 +347,7 @@
   }
 
   .guide-section {
-    grid-template-columns: 34px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
     padding: 17px 14px;
   }

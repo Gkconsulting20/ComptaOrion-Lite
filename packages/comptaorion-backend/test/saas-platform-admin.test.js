@@ -82,6 +82,34 @@ function platformRoutesAppWithCommercialMutation(account, commercial) {
   return app;
 }
 
+function platformRoutesAppWithPlanMutation(account, plan) {
+  const app = express();
+  const dbState = { updates: null };
+  const fakeDb = {
+    select() {
+      const query = {
+        from() { return query; },
+        where() { return query; },
+        limit() { return Promise.resolve(account ? [account] : []); },
+      };
+      return query;
+    },
+    update() {
+      const query = {
+        set(updates) { dbState.updates = updates; return query; },
+        where() { return query; },
+        returning() { return Promise.resolve(plan ? [{ ...plan, ...dbState.updates }] : []); },
+      };
+      return query;
+    },
+  };
+  app.use(express.json());
+  app.use((req, res, next) => runWithDatabaseContext({ db: fakeDb, pool: {} }, next));
+  app.use(authMiddleware);
+  app.use('/api/saas-admin', requirePlatformOwner, saasPlatformAdminRoutes);
+  return app;
+}
+
 function registrationAppWithReferral(commercialId) {
   const inserted = [];
   let nextId = 100;
@@ -221,6 +249,23 @@ test('l’administrateur peut désactiver un compte commercial via la route rée
     const updated = await response.json();
     assert.equal(updated.actif, false);
     assert.equal(updated.id, 14);
+  });
+});
+
+test('l’administrateur peut activer un forfait brouillon via la route réellement montée', async () => {
+  const account = { email: 'admin@orionexa.net', role: 'admin', actif: true };
+  const plan = { id: 2, nom: 'Services — brouillon', prix: '2500', limiteUtilisateurs: 3, stockageGb: 3, actif: false };
+  await withServer(platformRoutesAppWithPlanMutation(account, plan), async (base) => {
+    const response = await fetch(`${base}/api/saas-admin/plans/2`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${tokenFor()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actif: true }),
+    });
+    assert.equal(response.status, 200);
+    const updated = await response.json();
+    assert.equal(updated.actif, true);
+    assert.equal(updated.id, 2);
+    assert.equal(updated.nom, 'Services — brouillon');
   });
 });
 

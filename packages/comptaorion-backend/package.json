@@ -18,7 +18,9 @@
     "drizzle-orm": "^0.45.2",
     "express": "^4.22.3",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^2.5.0",
     "pg": "^8.16.3",
+    "read-excel-file": "^9.3.20",
     "ws": "^8.21.3"
   },
   "devDependencies": {

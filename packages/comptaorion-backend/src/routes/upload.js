@@ -1,9 +1,6 @@
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import fs from 'fs';
 import { db } from '../db.js';
 import { entreprises } from '../schema.js';
 import { verifierLimiteStockage } from '../plan-limits.js';
@@ -11,26 +8,15 @@ import { eq } from 'drizzle-orm';
 
 const router = express.Router();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const uploadsDir = path.join(__dirname, '../../uploads/logos');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    if (!req.entrepriseId) {
-      return cb(new Error('Entreprise ID manquant - authentification requise'));
-    }
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `entreprise-${req.entrepriseId}-logo-${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
+// Logo d'entreprise (POST /api/logo, DELETE /api/logo).
+//
+// Stockage en mémoire puis data URL dans entreprises.logo_url : le
+// Worker Cloudflare n'a pas de disque inscriptible (l'ancien
+// multer.diskStorage + fs.mkdirSync à l'import faisait échouer le
+// démarrage du Worker) et ne sert pas de fichiers statiques — une URL
+// /uploads/logos/... n'aurait de toute façon rien servi. La data URL
+// est consommée telle quelle par parametres.js et emailService.js
+// (<img src={logoUrl}>). Limite 5 Mo par fichier, comme avant.
 
 const fileFilter = (req, file, cb) => {
   const allowedTypes = /jpeg|jpg|png|gif|svg/;
@@ -45,9 +31,9 @@ const fileFilter = (req, file, cb) => {
 };
 
 const upload = multer({
-  storage: storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: fileFilter
+  fileFilter,
 });
 
 router.post('/logo', upload.single('logo'), async (req, res) => {
@@ -64,49 +50,30 @@ router.post('/logo', upload.single('logo'), async (req, res) => {
     // Santé). Le logo est un fichier unique remplacé à chaque envoi :
     // le contrôle porte sur la taille du fichier entrant. L'essai, la
     // démo et le propriétaire de la plateforme ne sont pas limités
-    // (voir plan-limits.js). Le fichier déjà écrit par multer est
-    // supprimé en cas de refus.
+    // (voir plan-limits.js).
     try {
       await verifierLimiteStockage(db, req.entrepriseId, req.file.size, req.user);
     } catch (error) {
       if (error.statut === 403) {
-        if (req.file && fs.existsSync(req.file.path)) {
-          fs.unlinkSync(req.file.path);
-        }
         return res.status(403).json({ error: error.message, code: error.code });
       }
       throw error;
     }
 
-    const logoUrl = `/uploads/logos/${req.file.filename}`;
-
-    const [entreprise] = await db.select()
-      .from(entreprises)
-      .where(eq(entreprises.id, req.entrepriseId))
-      .limit(1);
-
-    if (entreprise?.logoUrl) {
-      const oldLogoPath = path.join(__dirname, '../..', entreprise.logoUrl);
-      if (fs.existsSync(oldLogoPath)) {
-        fs.unlinkSync(oldLogoPath);
-      }
-    }
+    const logoUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
 
     await db.update(entreprises)
-      .set({ 
+      .set({
         logoUrl,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       })
       .where(eq(entreprises.id, req.entrepriseId));
 
-    res.json({ 
-      message: 'Logo uploadé avec succès', 
-      logoUrl 
+    res.json({
+      message: 'Logo uploadé avec succès',
+      logoUrl,
     });
   } catch (err) {
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -126,17 +93,10 @@ router.delete('/logo', async (req, res) => {
       return res.status(404).json({ error: 'Entreprise introuvable' });
     }
 
-    if (entreprise.logoUrl) {
-      const logoPath = path.join(__dirname, '../..', entreprise.logoUrl);
-      if (fs.existsSync(logoPath)) {
-        fs.unlinkSync(logoPath);
-      }
-    }
-
     await db.update(entreprises)
-      .set({ 
+      .set({
         logoUrl: null,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       })
       .where(eq(entreprises.id, req.entrepriseId));
 

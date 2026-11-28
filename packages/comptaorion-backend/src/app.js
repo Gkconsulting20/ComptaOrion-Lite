@@ -16,6 +16,9 @@ import comptabiliteRoutes from './routes/comptabilite.js';
 import impotsRoutes from './routes/impots.js';
 import tresorerieRoutes from './routes/tresorerie.js';
 import bankReconciliationRoutes from './routes/bank-reconciliation.js';
+import importRoutes from './routes/import.js';
+import uploadRoutes from './routes/upload.js';
+import entrepriseUtilisateursRoutes from './routes/entreprise-utilisateurs.js';
 import saasPlatformAdminRoutes, { requirePlatformOwner } from './routes/saas-platform-admin.js';
 import commercialPortalRoutes from './routes/commercial-portal.js';
 import { authMiddleware, entrepriseIsolation } from './auth.js';
@@ -56,6 +59,17 @@ app.use('/api/comptabilite', comptabiliteRoutes);
 app.use('/api/impots', impotsRoutes);
 app.use('/api/tresorerie', tresorerieRoutes);
 app.use('/api/bank-reconciliations', bankReconciliationRoutes);
+// Imports de données (CSV/Excel/IIF) et logo d'entreprise : routeurs
+// longtemps non montés (404 « Route non disponible dans Lite »). Ils
+// portent les contrôles de stockage des forfaits (403
+// PLAN_LIMIT_REACHED) ; upload.js ne touche plus au disque (data URL
+// dans entreprises.logo_url) pour rester compatible avec le Worker.
+// Ajout d'utilisateurs à une entreprise existante (propriétaire
+// admin, sans e-mail) : POST /api/entreprise/utilisateurs, protégé
+// par la limite d'utilisateurs du forfait.
+app.use('/api/import', importRoutes);
+app.use('/api', uploadRoutes);
+app.use('/api/entreprise/utilisateurs', entrepriseUtilisateursRoutes);
 app.use((error, _req, res, next) => {
   if (error.type === 'entity.too.large') return res.status(413).json({ success: false, message: 'Photo trop volumineuse (4 Mio maximum).' });
   if (error.type === 'entity.parse.failed') return res.status(400).json({ success: false, message: 'Corps JSON invalide.' });
