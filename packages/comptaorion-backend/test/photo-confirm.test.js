@@ -78,9 +78,16 @@ async function withApi(initial, run) {
         returning() {
           assert.ok(queries.some(q => q.lock && q.transaction), 'company locked before writes');
           if (name === 'lite_idempotency' && current[name].some(row => row.idempotencyKey === value.idempotencyKey)) return Promise.resolve([]);
-          const row = { id: 100 + current[name].length, ...value };
-          current[name].push(row);
-          return Promise.resolve([row]);
+          // Un INSERT multi-lignes (lignes d'écriture depuis le 28 nov.
+          // 2026, perf démo) insère une ligne par élément du tableau,
+          // comme Postgres : state()[table] compte les lignes, pas les appels.
+          const valeurs = Array.isArray(value) ? value : [value];
+          const inserees = valeurs.map((v) => {
+            const row = { id: 100 + current[name].length, ...v };
+            current[name].push(row);
+            return row;
+          });
+          return Promise.resolve(inserees);
         },
         then(resolve, reject) { return chain.returning().then(resolve, reject); },
       };

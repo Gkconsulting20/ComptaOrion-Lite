@@ -36,7 +36,7 @@
 //   route POST /declarations/:id/payer le produit aujourd'hui.
 
 import crypto from 'node:crypto';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { db } from '../db.js';
 import {
   entreprises, users, saasClients, sessions, auditConnexions,
@@ -51,6 +51,7 @@ import {
   createEcritureComptable, createEcritureFactureVente,
   createEcriturePaiementClient, createEcritureDepenseLite,
   createEcritureChargeNoteFraisLite, resolveCompteChargeLite,
+  creerCacheComptes,
 } from './comptabiliteService.js';
 import {
   enregistrerEncaissementTresorerie, enregistrerDecaissementTresorerie,
@@ -77,7 +78,14 @@ export function buildDemoIdentifiers(entrepriseId) {
   };
 }
 
-async function getCompteExact(entrepriseId, numero, executor) {
+async function getCompteExact(entrepriseId, numero, executor, comptesPrecharges) {
+  // Comptes préchargés en une seule requête en début de seed (28 nov. 2026,
+  // perf démo) : 13 lectures → 1. Sans préchargement, lecture unitaire.
+  if (comptesPrecharges) {
+    const compte = comptesPrecharges.get(numero);
+    if (!compte) throw new Error(`Compte comptable ${numero} introuvable pour l'entreprise démo ${entrepriseId}.`);
+    return compte;
+  }
   const [compte] = await executor.select().from(comptesComptables).where(and(
     eq(comptesComptables.entrepriseId, entrepriseId),
     eq(comptesComptables.numero, numero),
@@ -85,6 +93,10 @@ async function getCompteExact(entrepriseId, numero, executor) {
   if (!compte) throw new Error(`Compte comptable ${numero} introuvable pour l'entreprise démo ${entrepriseId}.`);
   return compte;
 }
+
+// Comptes lus directement par le seed (les écritures passent par
+// createEcriture* qui résolvent les leurs via le cache par transaction).
+const NUMEROS_COMPTES_SEED = ['5121', '57', '52', '101', '709', '443', '411', '4434', '445', '6051', '681', '428', '421'];
 
 function totalsHT(lines) {
   const totalHT = round2(lines.reduce((s, l) => s + l.quantite * l.prixUnitaire * (1 - (l.remise || 0) / 100), 0));
@@ -109,7 +121,7 @@ async function createInvoice(tx, ctx, { numero, client, date, echeance, statut, 
   await createEcritureFactureVente({
     entrepriseId: ctx.entrepriseId, numeroFacture: numero, dateFacture: date,
     clientNom: client.nom, clientCompteId: client.compteComptableId || null,
-    totalHT, totalTVA, totalTTC, valide: true, executor: tx,
+    totalHT, totalTVA, totalTTC, valide: true, executor: tx, cache: ctx.cacheComptes,
   });
   return { ...invoice, totalHT, totalTVA, totalTTC };
 }
@@ -131,7 +143,7 @@ async function payInvoice(tx, ctx, invoice, { montant, modePaiement, date, compt
     entrepriseId: ctx.entrepriseId, reference: reference || `PAI-${payment.id}`,
     datePaiement: date, clientNom: ctx.clientNomById[invoice.clientId] || 'Client',
     clientCompteId: null, montant, modePaiement: modePaiement === 'especes' ? 'especes' : 'banque',
-    compteBancaireId: compteBancaireId || null, executor: tx,
+    compteBancaireId: compteBancaireId || null, executor: tx, cache: ctx.cacheComptes,
   });
   await enregistrerEncaissementTresorerie({
     entrepriseId: ctx.entrepriseId, montant, dateTransaction: date,
@@ -153,7 +165,7 @@ async function createDirectExpense(tx, ctx, { categorie, montant, date, descript
   await createEcritureDepenseLite({
     entrepriseId: ctx.entrepriseId, reference: `LITE-EXP-${depense.id}`,
     dateDepense: date, description, montant, modePaiement,
-    categorieNom: categorie.nom, executor: tx,
+    categorieNom: categorie.nom, executor: tx, cache: ctx.cacheComptes,
   });
   await enregistrerDecaissementTresorerie({
     entrepriseId: ctx.entrepriseId, montant, dateTransaction: date,
@@ -172,7 +184,10 @@ async function createDirectExpense(tx, ctx, { categorie, montant, date, descript
 export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refreshToken, ipAddress, userAgent, now = new Date() } = {}) {
   const year = now.getFullYear();
   const ids = buildDemoIdentifiers(entrepriseId);
-  const ctx = { entrepriseId, userId, clientNomById: {} };
+  // Cache explicite des comptes / journaux / paramètres pour toute la
+  // transaction du seed (perf démo, 28 nov. 2026) : sans lui, les mêmes
+  // comptes sont relus des dizaines de fois (312 requêtes au total).
+  const ctx = { entrepriseId, userId, clientNomById: {}, cacheComptes: creerCacheComptes() };
 
   // Mois précédent (TVA déclarée et payée) : le 28 du mois précédent.
   const prevMonth = new Date(year, now.getMonth() - 1, 28);
@@ -181,9 +196,17 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
   const paiementTvaDate = declarationDate < now ? addDays(declarationDate, 1) : declarationDate;
   if (paiementTvaDate > now) paiementTvaDate.setTime(now.getTime());
 
+  // Comptes du seed préchargés en UNE requête (perf démo, 28 nov. 2026).
+  const lignesComptesSeed = await tx.select().from(comptesComptables).where(and(
+    eq(comptesComptables.entrepriseId, entrepriseId),
+    inArray(comptesComptables.numero, NUMEROS_COMPTES_SEED),
+  ));
+  const comptesSeed = new Map(lignesComptesSeed.map((c) => [c.numero, c]));
+  const getCompte = (numero) => getCompteExact(entrepriseId, numero, tx, comptesSeed);
+
   // Comptes de trésorerie (soldes gérés par les mouvements ci-dessous).
-  const compte5121 = await getCompteExact(entrepriseId, '5121', tx);
-  const compte57 = await getCompteExact(entrepriseId, '57', tx);
+  const compte5121 = await getCompte('5121');
+  const compte57 = await getCompte('57');
   const [banque] = await tx.insert(comptesBancaires).values({
     entrepriseId, nomCompte: 'Banque principale — Démo', banque: 'Banque Atlantique (démo)',
     type: 'banque', compteComptableId: compte5121.id,
@@ -199,8 +222,8 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
   }).returning();
 
   // Capital initial : D 52 / C 101, 200 000 (journal à nouveaux).
-  const compte52 = await getCompteExact(entrepriseId, '52', tx);
-  const compte101 = await getCompteExact(entrepriseId, '101', tx);
+  const compte52 = await getCompte('52');
+  const compte101 = await getCompte('101');
   await createEcritureComptable({
     entrepriseId, journalCode: 'AN', journalNom: 'Journal à Nouveaux', journalType: 'od',
     dateEcriture: isoDate(prevMonth), libelle: 'Capital initial — ouverture (démo)',
@@ -209,7 +232,7 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
       { compteComptableId: compte52.id, debit: 200000, credit: 0, libelle: 'Capital initial — banque' },
       { compteComptableId: compte101.id, debit: 0, credit: 200000, libelle: 'Capital social — ouverture' },
     ],
-    valide: true, executor: tx,
+    valide: true, executor: tx, cache: ctx.cacheComptes,
   });
 
   // Paramètres fiscaux (connexion OTR simulée active : la démo peut
@@ -220,43 +243,38 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
     connexionActive: true, actif: true,
   });
 
-  // 4 prestations de services.
+  // 4 prestations de services — UN seul INSERT multi-lignes (perf démo,
+  // 28 nov. 2026). Correspondance par référence unique, jamais par ordre.
   const prestationsData = [
     { nom: 'Tenue de comptabilité mensuelle', prix: 75000, unite: 'mois' },
     { nom: 'Établissement des états financiers', prix: 150000, unite: 'forfait' },
     { nom: 'Déclaration TVA mensuelle', prix: 25000, unite: 'mois' },
     { nom: 'Conseil fiscal — heure', prix: 20000, unite: 'heure' },
   ];
-  const prestations = [];
-  for (let i = 0; i < prestationsData.length; i += 1) {
-    const p = prestationsData[i];
-    const [row] = await tx.insert(produits).values({
-      entrepriseId, reference: ids.productReference(i + 1), nom: p.nom,
-      description: `${p.nom} (démo)`, uniteMesure: p.unite,
-      prixVente: String(p.prix), prixAchat: '0', quantite: '0', actif: true,
-    }).returning();
-    prestations.push(row);
-  }
+  const prestationsLignes = await tx.insert(produits).values(prestationsData.map((p, i) => ({
+    entrepriseId, reference: ids.productReference(i + 1), nom: p.nom,
+    description: `${p.nom} (démo)`, uniteMesure: p.unite,
+    prixVente: String(p.prix), prixAchat: '0', quantite: '0', actif: true,
+  }))).returning();
+  const prestationsParReference = new Map(prestationsLignes.map((r) => [r.reference, r]));
+  const prestations = prestationsData.map((_, i) => prestationsParReference.get(ids.productReference(i + 1)));
   const [P1, P2, P3, P4] = prestations;
 
-  // 4 clients fictifs togolais.
+  // 4 clients fictifs togolais — UN seul INSERT multi-lignes.
   const clientsData = [
     { nom: 'Coopérative Agri-Sud — Kpalimé (démo)', tel: '+228 90 11 22 33', ville: 'Kpalimé', email: 'contact.agrisud@demo.invalid' },
     { nom: 'Ferme des Plateaux — Atakpamé (démo)', tel: '+228 90 22 33 44', ville: 'Atakpamé', email: 'ferme.plateaux@demo.invalid' },
     { nom: 'Établissements Améyo — Lomé (démo)', tel: '+228 90 33 44 55', ville: 'Lomé', email: 'ameyo.ets@demo.invalid' },
     { nom: 'Quincaillerie Moderne — Sokodé (démo)', tel: '+228 90 44 55 66', ville: 'Sokodé', email: 'quincaillerie.moderne@demo.invalid' },
   ];
-  const clientsRows = [];
-  for (let i = 0; i < clientsData.length; i += 1) {
-    const c = clientsData[i];
-    const [row] = await tx.insert(clients).values({
-      entrepriseId, numeroClient: ids.clientNumber(i + 1), nom: c.nom,
-      type: 'entreprise', email: c.email, telephone: c.tel,
-      adresse: `${c.ville}, Togo (démo)`, ville: c.ville, pays: 'Togo',
-    }).returning();
-    clientsRows.push(row);
-    ctx.clientNomById[row.id] = row.nom;
-  }
+  const clientsLignes = await tx.insert(clients).values(clientsData.map((c, i) => ({
+    entrepriseId, numeroClient: ids.clientNumber(i + 1), nom: c.nom,
+    type: 'entreprise', email: c.email, telephone: c.tel,
+    adresse: `${c.ville}, Togo (démo)`, ville: c.ville, pays: 'Togo',
+  }))).returning();
+  const clientsParNumero = new Map(clientsLignes.map((r) => [r.numeroClient, r]));
+  const clientsRows = clientsData.map((_, i) => clientsParNumero.get(ids.clientNumber(i + 1)));
+  for (const row of clientsRows) ctx.clientNomById[row.id] = row.nom;
   const [C1, C2, C3, C4] = clientsRows;
 
   // 2 devis : 1 brouillon, 1 accepté → facturé (F2).
@@ -334,9 +352,9 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
 
   // Avoir client sur la facture payée F2 : HT 15 000, TVA 2 700,
   // TTC 17 700 (D 709 / D 443 / C 411 ; solde F2 = −17 700).
-  const compte709 = await getCompteExact(entrepriseId, '709', tx);
-  const compte443 = await getCompteExact(entrepriseId, '443', tx);
-  const compte411 = await getCompteExact(entrepriseId, '411', tx);
+  const compte709 = await getCompte('709');
+  const compte443 = await getCompte('443');
+  const compte411 = await getCompte('411');
   const [avoir] = await tx.insert(ajustementsTiers).values({
     entrepriseId, type: 'credit_client', numero: `AVC-${year}-${entrepriseId}-0001`,
     factureId: F2.id, clientId: C1.id, dateNote: isoDate(addDays(now, -2)),
@@ -353,13 +371,13 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
       { compteComptableId: compte443.id, debit: 2700, credit: 0, libelle: 'TVA sur avoir client' },
       { compteComptableId: compte411.id, debit: 0, credit: 17700, libelle: `Avoir client ${C1.nom}` },
     ],
-    valide: true, executor: tx,
+    valide: true, executor: tx, cache: ctx.cacheComptes,
   });
   await tx.update(factures).set({ soldeRestant: '-17700.00' }).where(eq(factures.id, F2.id));
 
   // TVA du mois précédent : déclarée et payée (27 000 = TVA collectée
   // d'octobre, F1). Écriture D 4434 / C 52 + décaissement banque.
-  const compte4434 = await getCompteExact(entrepriseId, '4434', tx);
+  const compte4434 = await getCompte('4434');
   await tx.insert(declarationsFiscales).values({
     entrepriseId, type: 'tva', periode: prevPeriode, montant: '27000.00',
     statut: 'payée', numeroDeclaration: `TVA-${prevPeriode}-${entrepriseId}`,
@@ -379,7 +397,7 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
       { compteComptableId: compte4434.id, debit: 27000, credit: 0, libelle: `Paiement TVA ${prevPeriode}` },
       { compteComptableId: compte52.id, debit: 0, credit: 27000, libelle: 'Règlement impôt TVA' },
     ],
-    valide: true, executor: tx,
+    valide: true, executor: tx, cache: ctx.cacheComptes,
   });
   await enregistrerDecaissementTresorerie({
     entrepriseId, montant: 27000, dateTransaction: isoDate(paiementTvaDate),
@@ -391,14 +409,13 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
   });
 
   // 4 dépenses directes Lite (approuvées à la création).
+  // Catégories en UN seul INSERT multi-lignes (perf démo, 28 nov. 2026).
   const categoriesData = ['Loyer', 'Électricité', 'Fournitures de bureau', 'Transport'];
+  const categoriesLignes = await tx.insert(categoriesDepenses).values(categoriesData.map((nom) => ({
+    entrepriseId, nom, description: `Catégorie ${nom} (démo)`,
+  }))).returning();
   const categories = {};
-  for (const nom of categoriesData) {
-    const [row] = await tx.insert(categoriesDepenses).values({
-      entrepriseId, nom, description: `Catégorie ${nom} (démo)`,
-    }).returning();
-    categories[nom] = row;
-  }
+  for (const row of categoriesLignes) categories[row.nom] = row;
   await createDirectExpense(tx, ctx, {
     categorie: categories.Loyer, montant: 180000, date: isoDate(addDays(now, -12)),
     description: 'Loyer boutique — novembre (démo)', modePaiement: 'banque', compteBancaireId: banque.id,
@@ -418,8 +435,8 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
 
   // OD — TVA déductible sur l'électricité (TTC 45 000 = HT 38 136 +
   // TVA 6 864) : D 445 / C 6051, la charge nette devient 38 136.
-  const compte445 = await getCompteExact(entrepriseId, '445', tx);
-  const compte6051 = await getCompteExact(entrepriseId, '6051', tx);
+  const compte445 = await getCompte('445');
+  const compte6051 = await getCompte('6051');
   await createEcritureComptable({
     entrepriseId, journalCode: 'OD', journalNom: 'Journal des Opérations Diverses', journalType: 'od',
     dateEcriture: isoDate(addDays(now, -8)), libelle: 'TVA déductible — électricité novembre (démo)',
@@ -428,12 +445,12 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
       { compteComptableId: compte445.id, debit: 6864, credit: 0, libelle: 'TVA déductible — électricité' },
       { compteComptableId: compte6051.id, debit: 0, credit: 6864, libelle: 'TVA déductible — électricité' },
     ],
-    valide: true, executor: tx,
+    valide: true, executor: tx, cache: ctx.cacheComptes,
   });
 
   // OD — provision pour charges : D 681 / C 428, 20 000.
-  const compte681 = await getCompteExact(entrepriseId, '681', tx);
-  const compte428 = await getCompteExact(entrepriseId, '428', tx);
+  const compte681 = await getCompte('681');
+  const compte428 = await getCompte('428');
   await createEcritureComptable({
     entrepriseId, journalCode: 'OD', journalNom: 'Journal des Opérations Diverses', journalType: 'od',
     dateEcriture: isoDate(addDays(now, -3)), libelle: 'Provision pour charges (démo)',
@@ -442,7 +459,7 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
       { compteComptableId: compte681.id, debit: 20000, credit: 0, libelle: 'Provision pour charges' },
       { compteComptableId: compte428.id, debit: 0, credit: 20000, libelle: 'Provision pour charges à payer' },
     ],
-    valide: true, executor: tx,
+    valide: true, executor: tx, cache: ctx.cacheComptes,
   });
 
   // Employé (annuaire, lié au compte admin démo) + note de frais
@@ -475,7 +492,7 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
     entrepriseId, depenseId: noteFrais.id, dateDepense: noteFrais.dateDepense,
     description: noteFrais.description, montant: 15000,
     numeroCompteCharge: resolveCompteChargeLite(categories.Transport.nom, noteFrais.description),
-    executor: tx,
+    executor: tx, cache: ctx.cacheComptes,
   });
   await tx.update(depenses).set({ statut: 'approuvée', montantApprouve: '15000.00' })
     .where(eq(depenses.id, noteFrais.id));
@@ -485,7 +502,7 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
   }).returning();
   await tx.update(depenses).set({ montantRembourse: '15000.00', statut: 'remboursée' })
     .where(eq(depenses.id, noteFrais.id));
-  const compte421 = await getCompteExact(entrepriseId, '421', tx);
+  const compte421 = await getCompte('421');
   await createEcritureComptable({
     entrepriseId, journalCode: 'CA', journalNom: 'Journal de Caisse', journalType: 'caisse',
     dateEcriture: isoDate(addDays(now, -1)),
@@ -495,7 +512,7 @@ export async function seedDemoEnterprise(entrepriseId, userId, tx, { token, refr
       { compteComptableId: compte421.id, debit: 15000, credit: 0, libelle: 'Remboursement avance Aya Kouassi' },
       { compteComptableId: compte57.id, debit: 0, credit: 15000, libelle: 'Décaissement remboursement Aya Kouassi' },
     ],
-    valide: true, executor: tx,
+    valide: true, executor: tx, cache: ctx.cacheComptes,
   });
   await enregistrerDecaissementTresorerie({
     entrepriseId, montant: 15000, dateTransaction: isoDate(addDays(now, -1)),

@@ -1,0 +1,19 @@
+# Cache HTTP des fichiers statiques — ComptaOrioLite (28 nov. 2026)
+#
+# Règles Cloudflare Workers Static Assets (fichier _headers, copié tel quel
+# dans dist/public/ par Vite). Les assets de build sous /assets/* portent un
+# hash de contenu dans leur nom (ex. index-CFyOQ9OW.js) : un nom = un
+# contenu, donc un cache long + immutable est sûr. La garantie de version
+# reste assurée par ailleurs par le service worker (nom de cache horodaté
+# à chaque build + skipWaiting + clients.claim) : une nouvelle version
+# déployée remplace l'ancien shell, les anciennes URLs hashées ne sont
+# jamais réutilisées.
+#
+# /sw.js et / (index.html) restent en no-cache : le navigateur revérifie
+# à chaque navigation, donc une nouvelle version est détectée sans délai.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/sw.js
+  Cache-Control: no-cache
+/
+  Cache-Control: no-cache

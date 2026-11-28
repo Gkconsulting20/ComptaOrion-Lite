@@ -52,11 +52,34 @@ const COMPTES_SYSCOHADA = {
   ECARTS_PRIX: '603'
 };
 
-export async function getOrCreateJournal(entrepriseId, code, nom, type, executor = db) {
+// ---------------------------------------------------------------------------
+// Cache explicite des comptes / journaux / paramètres (28 nov. 2026,
+// performance démo) : le seed de démo résout les mêmes comptes des dizaines
+// de fois dans une même transaction (44 lectures de comptes, 19 du journal,
+// 19 des paramètres). Le cache est un simple objet créé par l'appelant
+// (creerCacheComptes()) et passé explicitement : SANS lui, chaque fonction
+// fait exactement les mêmes requêtes qu'avant (même ordre, même nombre) —
+// les tests sur base factice et les routes live ne changent pas. Seuls les
+// résultats trouvés sont cachés (un compte absent est re-cherché : il peut
+// être créé plus tard dans la même transaction).
+// ---------------------------------------------------------------------------
+export function creerCacheComptes() {
+  return {
+    comptesParNumero: new Map(),
+    comptesParId: new Map(),
+    journaux: new Map(),
+    parametres: undefined,
+    parametresLus: false,
+  };
+}
+
+export async function getOrCreateJournal(entrepriseId, code, nom, type, executor = db, cache = null) {
+  const cleJournal = `${entrepriseId}:${code}`;
+  if (cache?.journaux.has(cleJournal)) return cache.journaux.get(cleJournal);
   let journal = await executor.select().from(journaux)
     .where(and(eq(journaux.entrepriseId, entrepriseId), eq(journaux.code, code)))
     .limit(1);
-  
+
   if (journal.length === 0) {
     const [newJournal] = await executor.insert(journaux).values({
       entrepriseId,
@@ -65,33 +88,59 @@ export async function getOrCreateJournal(entrepriseId, code, nom, type, executor
       type,
       actif: true
     }).returning();
+    if (cache) cache.journaux.set(cleJournal, newJournal);
     return newJournal;
   }
+  if (cache) cache.journaux.set(cleJournal, journal[0]);
   return journal[0];
 }
 
-export async function getCompteByNumero(entrepriseId, numero, executor = db) {
+export async function getCompteByNumero(entrepriseId, numero, executor = db, cache = null) {
+  const cle = `${entrepriseId}:${numero}`;
+  if (cache?.comptesParNumero.has(cle)) return cache.comptesParNumero.get(cle);
   const comptes = await executor.select().from(comptesComptables)
     .where(and(
       eq(comptesComptables.entrepriseId, entrepriseId),
       sql`${comptesComptables.numero} LIKE ${numero + '%'}`
     ))
     .limit(1);
-  return comptes[0] || null;
-}
-
-export async function getCompteById(compteId, executor = db) {
-  const [compte] = await executor.select().from(comptesComptables)
-    .where(eq(comptesComptables.id, compteId));
+  const compte = comptes[0] || null;
+  if (cache && compte) cache.comptesParNumero.set(cle, compte);
   return compte;
 }
 
-export async function generateNumeroEcriture(entrepriseId, journalCode, executor = db) {
-  const params = await executor.select().from(parametresComptables)
-    .where(eq(parametresComptables.entrepriseId, entrepriseId))
-    .limit(1);
-  
-  const prefix = params[0]?.prefixeEcritures || 'EC';
+export async function getCompteById(compteId, executor = db, cache = null) {
+  if (cache?.comptesParId.has(compteId)) return cache.comptesParId.get(compteId);
+  const [compte] = await executor.select().from(comptesComptables)
+    .where(eq(comptesComptables.id, compteId));
+  if (cache && compte) cache.comptesParId.set(compteId, compte);
+  return compte;
+}
+
+export async function generateNumeroEcriture(entrepriseId, journalCode, executor = db, cache = null) {
+  // Le préfixe n'est pas utilisé dans le numéro retourné
+  // (journalCode-année-compteur). Avec un cache, il n'est lu qu'une fois
+  // par transaction ; sans cache, le comportement est inchangé (lu à
+  // chaque appel). Le COUNT, lui, reste calculé à chaque appel : la
+  // numérotation séquentielle doit refléter les écritures déjà insérées
+  // dans cette transaction.
+  let prefix;
+  if (cache) {
+    if (!cache.parametresLus) {
+      const params = await executor.select().from(parametresComptables)
+        .where(eq(parametresComptables.entrepriseId, entrepriseId))
+        .limit(1);
+      cache.parametres = params[0] || null;
+      cache.parametresLus = true;
+    }
+    prefix = cache.parametres?.prefixeEcritures || 'EC';
+  } else {
+    const params = await executor.select().from(parametresComptables)
+      .where(eq(parametresComptables.entrepriseId, entrepriseId))
+      .limit(1);
+    prefix = params[0]?.prefixeEcritures || 'EC';
+  }
+  void prefix;
   const year = new Date().getFullYear();
   
   const count = await executor.select({ count: sql`COUNT(*)` })
@@ -118,11 +167,14 @@ export async function createEcritureComptable(params) {
     valide = false,
     sourceType = null,
     sourceId = null,
-    executor = db
+    executor = db,
+    // Cache explicite (creerCacheComptes(), 28 nov. 2026, perf démo) :
+    // sans lui, le comportement est strictement inchangé.
+    cache = null
   } = params;
 
-  const journal = await getOrCreateJournal(entrepriseId, journalCode, journalNom, journalType, executor);
-  const numeroEcriture = await generateNumeroEcriture(entrepriseId, journalCode, executor);
+  const journal = await getOrCreateJournal(entrepriseId, journalCode, journalNom, journalType, executor, cache);
+  const numeroEcriture = await generateNumeroEcriture(entrepriseId, journalCode, executor, cache);
 
   if (!Array.isArray(lignes) || lignes.length < 2) {
     throw new Error('Une écriture comptable doit contenir au moins deux lignes');
@@ -132,22 +184,34 @@ export async function createEcritureComptable(params) {
   for (const ligne of lignes) {
     let compteId = ligne.compteComptableId;
     if (!compteId && ligne.numeroCompte) {
-      const compte = await getCompteByNumero(entrepriseId, ligne.numeroCompte, executor);
+      const compte = await getCompteByNumero(entrepriseId, ligne.numeroCompte, executor, cache);
       compteId = compte?.id;
     }
     if (!compteId) {
       throw new Error(`Compte comptable introuvable pour la ligne « ${ligne.libelle || libelle} »`);
     }
 
-    const [compteValide] = await executor.select({ id: comptesComptables.id })
-      .from(comptesComptables)
-      .where(and(
-        eq(comptesComptables.id, Number(compteId)),
-        eq(comptesComptables.entrepriseId, entrepriseId),
-      ))
-      .limit(1);
-    if (!compteValide) {
-      throw new Error(`Le compte comptable ${compteId} n’appartient pas à cette entreprise`);
+    // Validation d'appartenance au plan de l'entreprise. Avec un cache,
+    // elle passe par getCompteById (28 nov. 2026, perf démo : la requête
+    // inline relisait le même compte à chaque ligne — 44 lectures pour
+    // 19 écritures). Sans cache, la requête d'origine est conservée à
+    // l'identique. Même résultat, même message d'erreur dans les deux cas.
+    if (cache) {
+      const compteValide = await getCompteById(Number(compteId), executor, cache);
+      if (!compteValide || compteValide.entrepriseId !== entrepriseId) {
+        throw new Error(`Le compte comptable ${compteId} n’appartient pas à cette entreprise`);
+      }
+    } else {
+      const [compteValide] = await executor.select({ id: comptesComptables.id })
+        .from(comptesComptables)
+        .where(and(
+          eq(comptesComptables.id, Number(compteId)),
+          eq(comptesComptables.entrepriseId, entrepriseId),
+        ))
+        .limit(1);
+      if (!compteValide) {
+        throw new Error(`Le compte comptable ${compteId} n’appartient pas à cette entreprise`);
+      }
     }
 
     const debit = Number(ligne.debit || 0);
@@ -175,16 +239,16 @@ export async function createEcritureComptable(params) {
     totalCredit: totalCredit.toFixed(2)
   }).returning();
 
-  for (const ligne of lignesResolues) {
-    await executor.insert(lignesEcritures).values({
-      ecritureId: ecriture.id,
-      compteComptableId: ligne.compteComptableId,
-      debit: ligne.debit.toFixed(2),
-      credit: ligne.credit.toFixed(2),
-      libelle: ligne.libelle || libelle,
-      entrepriseId
-    });
-  }
+  // Lignes en UNE seule requête multi-lignes (28 nov. 2026, perf démo) :
+  // la boucle faisait un INSERT par ligne (44 requêtes pour 19 écritures).
+  await executor.insert(lignesEcritures).values(lignesResolues.map((ligne) => ({
+    ecritureId: ecriture.id,
+    compteComptableId: ligne.compteComptableId,
+    debit: ligne.debit.toFixed(2),
+    credit: ligne.credit.toFixed(2),
+    libelle: ligne.libelle || libelle,
+    entrepriseId,
+  })));
 
   return ecriture;
 }
@@ -339,12 +403,13 @@ export async function createEcritureFactureVente(params) {
     totalTVA = 0,
     totalTTC,
     valide = false,
-    executor = db
+    executor = db,
+    cache = null
   } = params;
 
-  const compte411 = clientCompteId ? await getCompteById(clientCompteId, executor) : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CLIENTS, executor);
-  const compteVentes = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.VENTES_MARCHANDISES, executor);
-  const compteTVA = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.TVA_COLLECTEE, executor);
+  const compte411 = clientCompteId ? await getCompteById(clientCompteId, executor, cache) : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CLIENTS, executor, cache);
+  const compteVentes = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.VENTES_MARCHANDISES, executor, cache);
+  const compteTVA = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.TVA_COLLECTEE, executor, cache);
 
   const ecrituresLignes = [];
 
@@ -390,7 +455,8 @@ export async function createEcritureFactureVente(params) {
     numeroPiece: numeroFacture,
     lignes: ecrituresLignes,
     valide,
-    executor
+    executor,
+    cache
   });
 }
 
@@ -460,17 +526,18 @@ export async function createEcriturePaiementClient(params) {
     modePaiement,
     compteBancaireId,
     escompteMontant = 0,
-    executor = db
+    executor = db,
+    cache = null
   } = params;
 
   const journalCode = modePaiement === 'especes' ? JOURNAL_CODES.CAISSE : JOURNAL_CODES.BANQUE;
   const journalNom = modePaiement === 'especes' ? 'Journal de Caisse' : 'Journal de Banque';
 
-  const compte411 = clientCompteId ? await getCompteById(clientCompteId, executor) : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CLIENTS, executor);
+  const compte411 = clientCompteId ? await getCompteById(clientCompteId, executor, cache) : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CLIENTS, executor, cache);
   const compteNumero = getCustomerReceiptAccountNumber(modePaiement);
-  const compteTresorerie = await getCompteByNumero(entrepriseId, compteNumero, executor);
+  const compteTresorerie = await getCompteByNumero(entrepriseId, compteNumero, executor, cache);
   const compteEscompte = Number(escompteMontant) > 0
-    ? await getCompteByNumero(entrepriseId, '665', executor)
+    ? await getCompteByNumero(entrepriseId, '665', executor, cache)
     : null;
   const ecrituresLignes = compteTresorerie && compte411 && (Number(escompteMontant) <= 0 || compteEscompte)
     ? buildCustomerPaymentLines({
@@ -499,7 +566,8 @@ export async function createEcriturePaiementClient(params) {
     numeroPiece: reference,
     lignes: ecrituresLignes,
     valide: true,
-    executor
+    executor,
+    cache
   });
 }
 
@@ -584,7 +652,8 @@ export async function createEcritureChargeNoteFraisLite(params) {
     description,
     montant,
     numeroCompteCharge,
-    executor = db
+    executor = db,
+    cache = null
   } = params;
 
   const amount = Number(montant);
@@ -595,10 +664,10 @@ export async function createEcritureChargeNoteFraisLite(params) {
   // Ventile la charge par catégorie (613 loyer, 624 transport, …),
   // repli sur 62 comme pour les dépenses Lite directes.
   let compteCharge = numeroCompteCharge
-    ? await getCompteByNumero(entrepriseId, numeroCompteCharge, executor)
+    ? await getCompteByNumero(entrepriseId, numeroCompteCharge, executor, cache)
     : null;
-  if (!compteCharge) compteCharge = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.AUTRES_CHARGES_EXTERNES, executor);
-  const compteAvance = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.PERSONNEL_AVANCES, executor);
+  if (!compteCharge) compteCharge = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.AUTRES_CHARGES_EXTERNES, executor, cache);
+  const compteAvance = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.PERSONNEL_AVANCES, executor, cache);
 
   if (!compteCharge || !String(compteCharge.numero).startsWith('6')) {
     throw Object.assign(new Error('La catégorie doit être liée à un compte de charge actif de classe 6.'), { status: 400 });
@@ -629,7 +698,8 @@ export async function createEcritureChargeNoteFraisLite(params) {
       { compteComptableId: compteAvance.id, debit: 0, credit: amount, libelle: 'Dette envers l’employé pour dépense approuvée' }
     ],
     valide: true,
-    executor
+    executor,
+    cache
   });
 }
 
@@ -679,17 +749,18 @@ export async function createEcritureDepenseLite(params) {
     montant,
     modePaiement = 'especes',
     categorieNom = null,
-    executor = db
+    executor = db,
+    cache = null
   } = params;
 
   // Ventile la charge par catégorie (613 loyer, 624 transport, 6051 électricité…).
   // Repli sur 62 si le compte ciblé n'existe pas dans le plan de l'entreprise.
   const numeroCharge = resolveCompteChargeLite(categorieNom, description);
-  let compteCharge = await getCompteByNumero(entrepriseId, numeroCharge, executor);
-  if (!compteCharge) compteCharge = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.AUTRES_CHARGES_EXTERNES, executor);
+  let compteCharge = await getCompteByNumero(entrepriseId, numeroCharge, executor, cache);
+  if (!compteCharge) compteCharge = await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.AUTRES_CHARGES_EXTERNES, executor, cache);
   const compteTresorerie = modePaiement === 'especes'
-    ? await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CAISSE, executor)
-    : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.BANQUE, executor);
+    ? await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.CAISSE, executor, cache)
+    : await getCompteByNumero(entrepriseId, COMPTES_SYSCOHADA.BANQUE, executor, cache);
 
   if (!compteCharge || !compteTresorerie) {
     throw new Error('Les comptes de charge et de trésorerie doivent être configurés avant d’enregistrer cette dépense.');
@@ -714,7 +785,8 @@ export async function createEcritureDepenseLite(params) {
     // comme les ventes (sinon l'état de résultat reste « provisoire » sans
     // aucun parcours de validation dans Lite).
     valide: true,
-    executor
+    executor,
+    cache
   });
 }
 

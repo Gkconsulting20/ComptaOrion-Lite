@@ -145,8 +145,16 @@ function LiteShell({ user, onLogout }) {
   const load = useCallback(async () => {
     const key = `lite-data-${user.entrepriseId || user.id}`;
     try {
-      const [c, f, p, e, d] = await Promise.all([api.get('/clients', { limit: 100 }), api.get('/factures', { limit: 100 }), api.get('/produits', { limit: 100 }), api.get('/depenses/list'), api.get('/factures/lite-day', { date: today() })]);
-      const next = { clients: unwrap(c), invoices: unwrap(f).map(x => ({ ...(x.facture || x), client: x.client })), products: unwrap(p), expenses: unwrap(e), daySummary: d?.data || null };
+      // Chargement regroupé (28 nov. 2026, perf) : 1 requête au lieu de 5.
+      // Repli sur les 5 appels historiques si l'endpoint regroupé échoue.
+      let next;
+      try {
+        const tb = await api.get('/tableau-bord', { limit: 100, date: today() });
+        next = { clients: unwrap(tb?.clients), invoices: unwrap(tb?.factures).map(x => ({ ...(x.facture || x), client: x.client })), products: unwrap(tb?.produits), expenses: unwrap(tb?.depenses), daySummary: tb?.jour || null };
+      } catch {
+        const [c, f, p, e, d] = await Promise.all([api.get('/clients', { limit: 100 }), api.get('/factures', { limit: 100 }), api.get('/produits', { limit: 100 }), api.get('/depenses/list'), api.get('/factures/lite-day', { date: today() })]);
+        next = { clients: unwrap(c), invoices: unwrap(f).map(x => ({ ...(x.facture || x), client: x.client })), products: unwrap(p), expenses: unwrap(e), daySummary: d?.data || null };
+      }
       setData(next); await cacheWrite(key, next);
     } catch { const cached = await cacheRead(key); if (cached) setData(cached); }
   }, [user.entrepriseId, user.id]);

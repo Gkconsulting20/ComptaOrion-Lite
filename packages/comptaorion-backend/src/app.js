@@ -19,6 +19,7 @@ import bankReconciliationRoutes from './routes/bank-reconciliation.js';
 import importRoutes from './routes/import.js';
 import uploadRoutes from './routes/upload.js';
 import entrepriseUtilisateursRoutes from './routes/entreprise-utilisateurs.js';
+import tableauBordRoutes from './routes/tableau-bord.js';
 import saasPlatformAdminRoutes, { requirePlatformOwner } from './routes/saas-platform-admin.js';
 import commercialPortalRoutes from './routes/commercial-portal.js';
 import { authMiddleware, entrepriseIsolation } from './auth.js';
@@ -45,6 +46,7 @@ app.use('/api/clients', clientsRoutes);
 app.use('/api/produits', produitsRoutes);
 app.use('/api/factures', facturesRoutes);
 app.use('/api/depenses', depensesRoutes);
+app.use('/api/tableau-bord', tableauBordRoutes); // Chargement initial regroupé (28 nov. 2026, perf).
 app.use('/api/financial-reports', financialReportsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api', liteAccountingRoutes);

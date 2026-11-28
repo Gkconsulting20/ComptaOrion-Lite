@@ -104,7 +104,13 @@ async function withApi(fake, run) {
 }
 
 function lignesEcriture(fake) {
-  return fake.insertions.filter((i) => i.rows?.compteComptableId !== undefined).map((i) => i.rows);
+  // Les lignes sont insérées en UNE requête multi-lignes depuis le 28 nov.
+  // 2026 (perf démo) : un enregistrement d'insertion porte alors un
+  // tableau de lignes, et non plus une ligne seule.
+  return fake.insertions.flatMap((i) => {
+    const lignes = Array.isArray(i.rows) ? i.rows : [i.rows];
+    return lignes.filter((l) => l?.compteComptableId !== undefined);
+  });
 }
 
 test('approbation manager : étape suivante créée, aucune écriture comptable', async () => {
