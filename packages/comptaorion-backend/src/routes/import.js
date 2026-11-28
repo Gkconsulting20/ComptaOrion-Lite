@@ -8,6 +8,7 @@ import {
 } from '../schema.js';
 import { eq, and, desc } from 'drizzle-orm';
 import { logAudit, extractAuditInfo } from '../utils/auditLogger.js';
+import { verifierLimiteStockage } from '../plan-limits.js';
 
 const router = express.Router();
 
@@ -146,7 +147,19 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     if (!sourceLogiciel || !typeEntite) {
       return res.status(400).json({ success: false, error: 'Source et type d\'entité requis' });
     }
-    
+
+    // Limite de stockage du forfait actif (403 au-delà — modèle Orion
+    // Santé). L'essai, la démo et le propriétaire de la plateforme ne
+    // sont pas limités (voir plan-limits.js).
+    try {
+      await verifierLimiteStockage(db, req.entrepriseId, req.file.size, req.user);
+    } catch (error) {
+      if (error.statut === 403) {
+        return res.status(403).json({ success: false, error: error.message, code: error.code });
+      }
+      throw error;
+    }
+
     const fileName = req.file.originalname;
     const ext = fileName.split('.').pop().toLowerCase();
     

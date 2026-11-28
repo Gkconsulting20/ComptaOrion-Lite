@@ -6,6 +6,7 @@ import { dirname } from 'path';
 import fs from 'fs';
 import { db } from '../db.js';
 import { entreprises } from '../schema.js';
+import { verifierLimiteStockage } from '../plan-limits.js';
 import { eq } from 'drizzle-orm';
 
 const router = express.Router();
@@ -57,6 +58,24 @@ router.post('/logo', upload.single('logo'), async (req, res) => {
 
     if (!req.file) {
       return res.status(400).json({ error: 'Aucun fichier uploadé' });
+    }
+
+    // Limite de stockage du forfait actif (403 au-delà — modèle Orion
+    // Santé). Le logo est un fichier unique remplacé à chaque envoi :
+    // le contrôle porte sur la taille du fichier entrant. L'essai, la
+    // démo et le propriétaire de la plateforme ne sont pas limités
+    // (voir plan-limits.js). Le fichier déjà écrit par multer est
+    // supprimé en cas de refus.
+    try {
+      await verifierLimiteStockage(db, req.entrepriseId, req.file.size, req.user);
+    } catch (error) {
+      if (error.statut === 403) {
+        if (req.file && fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+        return res.status(403).json({ error: error.message, code: error.code });
+      }
+      throw error;
     }
 
     const logoUrl = `/uploads/logos/${req.file.filename}`;
