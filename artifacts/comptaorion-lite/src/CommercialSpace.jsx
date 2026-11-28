@@ -295,7 +295,7 @@ export default function CommercialSpace({ onBack = () => {} }) {
               </div>
               {filtered.length === 0 ? <EmptyState title={search ? 'Aucun résultat trouvé.' : emptyTitle(page)} detail={search ? 'Essayez un autre terme de recherche.' : emptyDetail(page)} /> :
                  <section className="cs-panel"><TableForPage page={page} rows={filtered} onEditClient={setClientToEdit} onEditPlan={setPlanToEdit} onEditRep={setRepToEdit} onCopyReferral={copyReferralLink} /></section>}
-              {page === 'plans' && <p className="cs-inline-note" style={{ marginTop: 12 }}>Les deux forfaits proposés sont préparés automatiquement comme brouillons. Les tarifs affichés restent à valider et le paiement XOF n’est pas activé. Les limites d’utilisateurs et de stockage du forfait actif d’une entreprise sont appliquées par le logiciel (refus au-delà de la limite) ; l’essai, la démo et le propriétaire de la plateforme ne sont pas limités.</p>}
+              {page === 'plans' && <p className="cs-inline-note" style={{ marginTop: 12 }}>Les deux forfaits proposés sont préparés automatiquement comme brouillons. Les tarifs affichés restent à valider et le paiement XOF n’est pas activé. Les limites d’utilisateurs et de stockage du forfait actif d’une entreprise sont vérifiées par le logiciel aux points d’ajout (imports, logo, ajout d’utilisateur) ; l’essai, la démo et le propriétaire de la plateforme ne sont pas limités.</p>}
             </section>}
           </>}
         </div>
