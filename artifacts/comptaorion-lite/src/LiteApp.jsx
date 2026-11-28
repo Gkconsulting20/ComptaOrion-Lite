@@ -438,3 +438,41 @@ function EmployeesSection({ t }) {
   </>;
 }
 function Prestations({ data, settings, t, write, reload }) { const [open, setOpen] = useState(false), [form, setForm] = useState({ nom: '', reference: '', prixVente: '' }); const create = async e => { e.preventDefault(); const result = await write('/produits', { nom: form.nom, reference: form.reference || undefined, prixVente: Number(form.prixVente) }); if (result?.failed) return; setOpen(false); setForm({ nom: '', reference: '', prixVente: '' }); reload(); }; const remove = async (id) => { try { await api.delete(`/produits/${id}`); reload(); } catch (err) { setOpen(false); } }; return <><PageHead eyebrow={t('Catalogue', 'Catalog')} title={t('Prestations', 'Services')} action={<button className="primary" onClick={() => setOpen(true)}>+ {t('Nouvelle prestation', 'New service')}</button>}><p className="muted">{t('Vos prestations facturables, avec leur tarif. Aucun stock : Lite est réservé aux services.', 'Your billable services, with their rates. No inventory: Lite is for services only.')}</p></PageHead><section className="list-card">{data.products.map(p => { return <div className="stock-row" key={p.id}><div><strong>{p.nom}</strong><small>{p.reference || t('Sans référence', 'No reference')} · {money(p.prixVente, settings.currency)}</small></div><button className="outline" onClick={() => remove(p.id)}>{t('Supprimer', 'Delete')}</button></div>; })}{!data.products.length && <Empty text={t('Ajoutez votre première prestation.', 'Add your first service.')} />}</section>{open && <Modal title={t('Nouvelle prestation', 'New service')} onClose={() => setOpen(false)}><form className="lite-form" onSubmit={create}><label>{t('Nom', 'Name')}<input autoFocus required value={form.nom} onChange={e => setForm({ ...form, nom: e.target.value })} /></label><label>{t('Référence (facultatif)', 'Reference (optional)')}<input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} /></label><label>{t('Tarif', 'Rate')}<input type="number" min="0" value={form.prixVente} onChange={e => setForm({ ...form, prixVente: e.target.value })} /></label><button className="primary wide">{t('Créer la prestation', 'Create service')}</button></form></Modal>}</>; }
+
+function Settings({ settings, saveSettings, t, logout, installPrompt }) {
+  const install = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+  };
+  return <>
+    <PageHead eyebrow={t('Votre espace', 'Your space')} title={t('Réglages', 'Settings')}>
+      <p className="muted">{t('Lite reste à votre image.', 'Lite works your way.')}</p>
+    </PageHead>
+    <section className="settings-card">
+      <label>{t('Langue', 'Language')}
+        <select value={settings.language} onChange={e => saveSettings({ ...settings, language: e.target.value })}>
+          <option value="fr">Français</option>
+          <option value="en">English</option>
+        </select>
+      </label>
+      <label>{t('Devise affichée', 'Displayed currency')}
+        <select value={settings.currency} onChange={e => saveSettings({ ...settings, currency: e.target.value })}>
+          <option>FCFA</option>
+          <option>EUR</option>
+          <option>USD</option>
+        </select>
+      </label>
+      <p className="install-help">{t('Cette devise est une étiquette d’affichage uniquement : aucune conversion monétaire n’est effectuée.', 'This currency is display-only: no currency conversion is performed.')}</p>
+      {installPrompt ? (
+        <button className="primary wide" onClick={install}>{t('Installer l’application', 'Install the app')}</button>
+      ) : (
+        <p className="install-help">{window.matchMedia?.('(display-mode: standalone)').matches ? t('Application installée. Vous pouvez travailler plus vite depuis votre écran d’accueil.', 'App installed. You can work faster from your home screen.') : t('Pour installer : ouvrez le menu du navigateur puis “Ajouter à l’écran d’accueil”. Sur iPhone : Partager, puis “Sur l’écran d’accueil”.', 'To install: open your browser menu and choose “Add to Home screen”. On iPhone: Share, then “Add to Home Screen”.')}</p>
+      )}
+    </section>
+    <section className="settings-links">
+      <a href="/">← {t('Retourner à ComptaOrion ERP', 'Back to full ComptaOrion ERP')}</a>
+      <button className="danger-link" onClick={logout}>{t('Se déconnecter', 'Log out')}</button>
+    </section>
+  </>;
+}
