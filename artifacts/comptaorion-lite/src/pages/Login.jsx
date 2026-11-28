@@ -243,7 +243,7 @@ export function Login({ onLoginSuccess, initialMessage = '', initialMode = 'logi
             </form>
           )}
           <div className="auth-guide-link">
-            Besoin d’aide ? <Link href="/guide">Consulter le guide d’utilisation</Link>
+            Besoin d’aide ? <Link href="/guide">Consulter le guide d’utilisation</Link> · <Link href="/guide#forfaits">Voir les forfaits</Link>
           </div>
         </div>
       </section>

@@ -15,6 +15,32 @@ const features = [
   ['Réglages', 'Langue et devise d’affichage, installation sur l’écran d’accueil du téléphone.'],
 ];
 
+const plans = [
+  {
+    nom: 'Services',
+    prix: '2 500',
+    devise: 'FCFA / mois',
+    description: 'Pour démarrer seul ou en petite équipe.',
+    points: [
+      '3 utilisateurs',
+      '3 Go de stockage',
+      'Toutes les fonctionnalités de ComptaOrion Lite : ventes, dépenses, TVA, caisse et banque, rapports',
+    ],
+  },
+  {
+    nom: 'Équipe',
+    prix: '10 000',
+    devise: 'FCFA / mois',
+    description: 'Pour les équipes qui grandissent.',
+    points: [
+      '10 utilisateurs',
+      '10 Go de stockage',
+      'Toutes les fonctionnalités de ComptaOrion Lite : ventes, dépenses, TVA, caisse et banque, rapports',
+      'Assistance prioritaire',
+    ],
+  },
+];
+
 export default function UserGuide() {
   return (
     <main className="user-guide-page">
@@ -36,10 +62,33 @@ export default function UserGuide() {
         <div className="guide-callout">
           <strong>Essai gratuit de 30 jours, puis 2 mois offerts</strong>
           <span>Si vous vous abonnez après l’essai, les 2 premiers mois de l’abonnement sont offerts : la facturation commence au 3e mois.</span>
+          <a href="#forfaits">Voir les forfaits : Services 2 500 FCFA/mois · Équipe 10 000 FCFA/mois</a>
         </div>
       </section>
 
       <div className="guide-content">
+        <section className="guide-section" id="forfaits">
+          <div>
+            <h2>Nos forfaits</h2>
+            <p>Deux forfaits mensuels, en FCFA. Essai gratuit de 30 jours, puis 2 mois offerts sur l’abonnement : la facturation commence au 3e mois.</p>
+            <div className="guide-plans">
+              {plans.map((plan) => (
+                <article className="guide-plan" key={plan.nom}>
+                  <h3>{plan.nom}</h3>
+                  <p className="guide-plan-price"><strong>{plan.prix}</strong> <span>{plan.devise}</span></p>
+                  <p className="guide-plan-description">{plan.description}</p>
+                  <ul>
+                    {plan.points.map((point) => <li key={point}>{point}</li>)}
+                  </ul>
+                </article>
+              ))}
+            </div>
+            <div className="guide-final-actions">
+              <Link className="guide-back guide-back-primary" href="/">Essayer gratuitement 30 jours</Link>
+            </div>
+          </div>
+        </section>
+
         <section className="guide-section">
           <div>
             <h2>Ce que permet ComptaOrion Lite</h2>

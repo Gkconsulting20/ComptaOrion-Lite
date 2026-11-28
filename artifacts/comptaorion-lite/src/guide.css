@@ -159,6 +159,50 @@
   gap: 14px;
 }
 
+.guide-plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.guide-plan {
+  border: 1px solid #e5ddd0;
+  border-radius: 14px;
+  padding: 20px;
+  background: #fffdf8;
+}
+
+.guide-plan h3 {
+  margin: 0 0 8px;
+  font: 700 19px 'Space Grotesk', sans-serif;
+}
+
+.guide-plan-price {
+  margin: 0 0 8px;
+  color: #172326;
+  font-size: 15px;
+}
+
+.guide-plan-price strong {
+  font: 700 30px 'Space Grotesk', sans-serif;
+}
+
+.guide-plan-price span {
+  color: #65716e;
+  font-size: 13px;
+}
+
+.guide-plan-description {
+  margin: 0 0 10px;
+}
+
+.guide-callout a {
+  color: #a44835;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .guide-section {
   display: grid;
   grid-template-columns: 46px minmax(0, 1fr);
